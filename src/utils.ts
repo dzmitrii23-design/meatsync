@@ -245,7 +245,7 @@ export function parseOcrText(
   }
 
   // 4. Поиск причины возврата
-  let reason = '⚠️ Брак продукции / Нарушение ТУ'; // Значение по умолчанию
+  let reason = '';
   
   if (normalizedText.includes('развакуум') || normalizedText.includes('упаковк') || normalizedText.includes('пакет') || normalizedText.includes('дыр')) {
     reason = '💨 Развакуум / Повреждение упаковки';

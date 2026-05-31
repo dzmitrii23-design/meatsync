@@ -15,7 +15,8 @@ import {
   CheckCircle2,
   FolderLock,
   Camera,
-  Sparkles
+  Sparkles,
+  Info
 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 import { parseOcrText } from '../utils';
@@ -115,20 +116,32 @@ export function Returns({
       const text = result.data.text;
       const parsed = parseOcrText(text, products, buyers);
 
-      if (parsed.productId) {
-        setSelectedProductId(parsed.productId);
-      }
-      if (parsed.quantityKg > 0) {
-        setWeightInput(parsed.quantityKg.toString());
-      }
-      if (parsed.buyerId) {
-        setSelectedBuyerId(parsed.buyerId);
-      }
-      if (parsed.reason) {
-        setSelectedReason(parsed.reason);
-      }
+      const hasProduct = Boolean(parsed.productId);
+      const hasWeight = parsed.quantityKg > 0;
+      const hasBuyer = Boolean(parsed.buyerId);
 
-      showNotification('🎉 Фото успешно распознано! Поля формы заполнены.');
+      if (!hasProduct && !hasWeight && !hasBuyer) {
+        showNotification('⚠️ ИИ не обнаружил на фото данных возврата (продукцию, вес или клиента).');
+      } else {
+        if (parsed.productId) {
+          setSelectedProductId(parsed.productId);
+        }
+        if (parsed.quantityKg > 0) {
+          setWeightInput(parsed.quantityKg.toString());
+        }
+        if (parsed.buyerId) {
+          setSelectedBuyerId(parsed.buyerId);
+        }
+        if (parsed.reason) {
+          setSelectedReason(parsed.reason);
+        }
+
+        if (hasProduct && hasWeight && hasBuyer) {
+          showNotification('🎉 Фото успешно распознано! Все поля автозаполнены.');
+        } else {
+          showNotification('⚠️ Распознано частично. Пожалуйста, укажите недостающие поля вручную.');
+        }
+      }
     } catch (err) {
       console.error('OCR scanning failed:', err);
       alert('Ошибка при сканировании изображения. Пожалуйста, убедитесь, что файл является корректной картинкой.');
@@ -273,12 +286,28 @@ export function Returns({
         </div>
       </div>
 
-      {localNotification && (
-        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-2xl flex items-center gap-2 shadow-sm animate-fade-in">
-          <CheckCircle2 className="text-green-500 h-5 w-5" />
-          <span className="font-semibold text-sm">{localNotification}</span>
-        </div>
-      )}
+      {localNotification && (() => {
+        const isWarning = localNotification.startsWith('⚠️');
+        const isSuccess = localNotification.startsWith('🎉') || localNotification.startsWith('✓');
+        
+        let bgClass = "bg-blue-50 border-blue-200 text-blue-800";
+        let icon = <Info className="text-blue-500 h-5 w-5 shrink-0" />;
+        
+        if (isWarning) {
+          bgClass = "bg-amber-50 border-amber-200 text-amber-800";
+          icon = <AlertCircle className="text-amber-500 h-5 w-5 shrink-0" />;
+        } else if (isSuccess) {
+          bgClass = "bg-green-50 border-green-200 text-green-800";
+          icon = <CheckCircle2 className="text-green-500 h-5 w-5 shrink-0" />;
+        }
+        
+        return (
+          <div className={`border px-4 py-3 rounded-2xl flex items-center gap-2 shadow-sm animate-fade-in ${bgClass}`}>
+            {icon}
+            <span className="font-semibold text-sm">{localNotification}</span>
+          </div>
+        );
+      })()}
 
       {/* Grid of actions and active list */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
