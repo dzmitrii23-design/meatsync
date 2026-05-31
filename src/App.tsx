@@ -55,10 +55,10 @@ export default function App() {
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
       {/* Universal Top Header Panel */}
       <header className="bg-slate-950 text-slate-300 border-b border-slate-900 z-30 shrink-0 shadow-md">
-        <div className="max-w-[1500px] mx-auto px-4 md:px-8 py-3.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div className="max-w-[1500px] mx-auto px-4 md:px-8 py-3.5 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
           
           {/* Logo / Brand & Administrator Badge */}
-          <div className="flex items-center justify-between lg:justify-start gap-4 shrink-0">
+          <div className="flex items-center justify-between xl:justify-start gap-4 shrink-0">
             <div className="flex items-center gap-3">
               <Box className="w-7 h-7 text-blue-500 shrink-0" />
               <div>
@@ -103,7 +103,7 @@ export default function App() {
           </div>
 
           {/* Navigation Tabs - horizontal scrolling on compact viewports */}
-          <nav className="flex items-center gap-1.5 overflow-x-auto pb-1 lg:pb-0 scrollbar-none -mx-4 px-4 lg:mx-0 lg:px-0">
+          <nav className="flex items-center gap-1.5 overflow-x-auto pb-1 xl:pb-0 scrollbar-none -mx-4 px-4 xl:mx-0 xl:px-0">
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm transition-all whitespace-nowrap shrink-0 cursor-pointer ${
@@ -113,7 +113,7 @@ export default function App() {
               }`}
             >
               <LayoutDashboard size={15} />
-              <span>Остатки (Дашборд)</span>
+              <span>Дашборд</span>
             </button>
 
             {role === 'ADMIN' && (
@@ -126,7 +126,7 @@ export default function App() {
                 }`}
               >
                 <ArrowLeftRight size={15} />
-                <span>Приход / Расход / Перемещение</span>
+                <span>Приход / Расход</span>
               </button>
             )}
 
@@ -139,7 +139,7 @@ export default function App() {
               }`}
             >
               <FileClock size={15} />
-              <span>Журнал операций</span>
+              <span>Журнал</span>
             </button>
 
             {role === 'ADMIN' && (
@@ -152,7 +152,7 @@ export default function App() {
                 }`}
               >
                 <RotateCcw size={15} />
-                <span>Возвраты и брак</span>
+                <span>Возвраты</span>
               </button>
             )}
 
@@ -165,7 +165,7 @@ export default function App() {
               }`}
             >
               <Settings size={15} />
-              <span>Места хранения</span>
+              <span>Камеры</span>
             </button>
 
             {role === 'ADMIN' && (
