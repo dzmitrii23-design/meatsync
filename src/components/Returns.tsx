@@ -13,8 +13,12 @@ import {
   ArrowLeftRight, 
   PackageMinus,
   CheckCircle2,
-  FolderLock
+  FolderLock,
+  Camera,
+  Sparkles
 } from 'lucide-react';
+import Tesseract from 'tesseract.js';
+import { parseOcrText } from '../utils';
 
 interface Props {
   products: Product[];
@@ -66,6 +70,11 @@ export function Returns({
     setTimeout(() => setLocalNotification(null), 3000);
   };
 
+  // AI OCR Scanning state
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanStatus, setScanStatus] = useState('');
+
   // 1. Return registration form state
   const [selectedProductId, setSelectedProductId] = useState('');
   const [weightInput, setWeightInput] = useState('');
@@ -73,6 +82,61 @@ export function Returns({
   const [selectedReason, setSelectedReason] = useState(RETURN_REASONS[0]);
   const [customReason, setCustomReason] = useState('');
   const [returnDate, setReturnDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const handleOcrScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    setScanProgress(0);
+    setScanStatus('Инициализация ИИ-модели...');
+
+    try {
+      const result = await Tesseract.recognize(
+        file,
+        'rus',
+        {
+          logger: m => {
+            if (m && m.status === 'recognizing text') {
+              const prog = Math.round(m.progress * 100);
+              setScanProgress(prog);
+              setScanStatus(`Распознавание текста: ${prog}%`);
+            } else if (m && m.status === 'loading tesseract core') {
+              setScanStatus('Запуск ИИ-ядра...');
+            } else if (m && m.status === 'loading language traineddata') {
+              setScanStatus('Загрузка словаря русского языка...');
+            } else {
+              setScanStatus('Обработка снимка...');
+            }
+          }
+        }
+      );
+
+      const text = result.data.text;
+      const parsed = parseOcrText(text, products, buyers);
+
+      if (parsed.productId) {
+        setSelectedProductId(parsed.productId);
+      }
+      if (parsed.quantityKg > 0) {
+        setWeightInput(parsed.quantityKg.toString());
+      }
+      if (parsed.buyerId) {
+        setSelectedBuyerId(parsed.buyerId);
+      }
+      if (parsed.reason) {
+        setSelectedReason(parsed.reason);
+      }
+
+      showNotification('🎉 Фото успешно распознано! Поля формы заполнены.');
+    } catch (err) {
+      console.error('OCR scanning failed:', err);
+      alert('Ошибка при сканировании изображения. Пожалуйста, убедитесь, что файл является корректной картинкой.');
+    } finally {
+      setIsScanning(false);
+      e.target.value = '';
+    }
+  };
 
   // 2. Returns list state
   const [searchQuery, setSearchQuery] = useState('');
@@ -220,11 +284,51 @@ export function Returns({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
         
         {/* Left Column - New Return Form (Span 4) */}
-        <div className="lg:col-span-4 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm">
-          <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2 pb-3 border-b border-slate-100">
-            <Undo2 className="h-4 w-4 text-amber-500" />
-            Оформить новый возврат
-          </h3>
+        <div className="lg:col-span-4 bg-white border border-gray-200 rounded-3xl p-6 shadow-sm relative overflow-hidden">
+          
+          {/* ИИ Сканирование Оверлей */}
+          {isScanning && (
+            <div className="absolute inset-0 bg-slate-900/85 backdrop-blur-md z-30 flex flex-col items-center justify-center p-6 text-center animate-fade-in">
+              <div className="relative mb-4">
+                <div className="w-16 h-16 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin" />
+                <Camera size={24} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-400" />
+              </div>
+              <h4 className="font-bold text-white text-base">ИИ распознает фото</h4>
+              <p className="text-xs text-indigo-200 mt-2 font-medium max-w-[200px] min-h-[32px]">{scanStatus}</p>
+              
+              <div className="w-full bg-slate-700/50 rounded-full h-1.5 mt-4 max-w-[180px] overflow-hidden border border-slate-700">
+                <div 
+                  className="bg-indigo-500 h-full transition-all duration-300 rounded-full" 
+                  style={{ width: `${scanProgress}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono mt-1.5">{scanProgress}%</span>
+            </div>
+          )}
+
+          <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+            <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+              <Undo2 className="h-4 w-4 text-amber-500" />
+              Оформить новый возврат
+            </h3>
+            
+            <label 
+              htmlFor="ocr-upload" 
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 hover:border-indigo-300 text-indigo-700 text-xs font-bold rounded-xl transition-all cursor-pointer select-none active:scale-95 shadow-sm shrink-0"
+            >
+              <Camera size={14} className="animate-pulse text-indigo-600" />
+              <Sparkles size={12} className="text-indigo-500 shrink-0" />
+              <span>ИИ-Сканер</span>
+            </label>
+            <input 
+              type="file" 
+              accept="image/*" 
+              id="ocr-upload" 
+              className="hidden" 
+              onChange={handleOcrScan} 
+              disabled={isScanning}
+            />
+          </div>
 
           <form onSubmit={handleRegisterReturn} className="space-y-4">
             

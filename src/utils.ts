@@ -128,3 +128,137 @@ export function generateProductSku(
   const paddedNum = String(nextNum).padStart(2, '0');
   return `${prefix}-${paddedNum}`;
 }
+
+import { Product, Buyer } from './types';
+
+export interface ParsedOcrResult {
+  productId: string;
+  quantityKg: number;
+  buyerId: string;
+  reason: string;
+}
+
+export function parseOcrText(
+  text: string,
+  products: Product[],
+  buyers: Buyer[]
+): ParsedOcrResult {
+  const normalizedText = text.toLowerCase();
+
+  // 1. Извлечение веса (quantityKg)
+  let quantityKg = 0;
+  
+  // Ищем вес с указанием размерности: "123.45 кг" или "123,45kg"
+  const weightRegex = /(\d+[.,]?\d*)\s*(?:кг|kg|килограмм)\b/gi;
+  let weightMatch = weightRegex.exec(normalizedText);
+  if (weightMatch) {
+    quantityKg = parseFloat(weightMatch[1].replace(',', '.'));
+  } else {
+    // Ищем фразы "вес", "масса", "кол-во", "колво", "нетто" и число после них
+    const labelWeightRegex = /(?:вес|масса|кол-во|колво|нетто)[^\d\n]*(\d+[.,]?\d*)/gi;
+    let labelMatch = labelWeightRegex.exec(normalizedText);
+    if (labelMatch) {
+      quantityKg = parseFloat(labelMatch[1].replace(',', '.'));
+    }
+  }
+
+  // 2. Поиск продукции (productId)
+  let productId = '';
+  
+  // Шаг А. Ищем точное совпадение по SKU
+  for (const p of products) {
+    if (p.sku && normalizedText.includes(p.sku.toLowerCase())) {
+      productId = p.id;
+      break;
+    }
+  }
+
+  // Шаг Б. Если по SKU не нашли, ищем по ключевым словам из имени с учетом склонений (стемминг)
+  if (!productId) {
+    let bestScore = 0;
+    const textWords = normalizedText.split(/[^а-яa-z0-9]+/);
+    
+    // Простая функция стемминга для русского языка (отсекаем 1-2 последние буквы)
+    const getStem = (w: string) => {
+      if (w.length <= 3) return w;
+      if (w.length <= 5) return w.slice(0, w.length - 1);
+      return w.slice(0, w.length - 2);
+    };
+
+    const textStems = textWords.map(w => getStem(w)).filter(w => w.length >= 3);
+
+    for (const p of products) {
+      const pWords = p.name.toLowerCase().split(/[^а-яa-z0-9]+/);
+      const pStems = pWords.map(w => getStem(w)).filter(w => w.length >= 3);
+      
+      let score = 0;
+      for (const pStem of pStems) {
+        if (textStems.includes(pStem)) {
+          score += 2; // Совпадение основы слова
+        } else if (normalizedText.includes(pStem)) {
+          score += 1; // Частичное вхождение основы
+        }
+      }
+      
+      if (score > bestScore) {
+        bestScore = score;
+        productId = p.id;
+      }
+    }
+  }
+
+  // 3. Поиск покупателя (buyerId)
+  let buyerId = '';
+  
+  // Шаг А. Ищем по ИНН (10 или 12 цифр)
+  const innRegex = /\b\d{10}\b|\b\d{12}\b/g;
+  let innMatch;
+  while ((innMatch = innRegex.exec(normalizedText)) !== null) {
+    const foundInn = innMatch[0];
+    const buyer = buyers.find(b => b.inn === foundInn);
+    if (buyer) {
+      buyerId = buyer.id;
+      break;
+    }
+  }
+
+  // Шаг Б. Ищем по названию покупателя
+  if (!buyerId) {
+    for (const b of buyers) {
+      const nameParts = b.name.toLowerCase().replace(/(?:ооо|ип|зао|оао|\"|\«|\»)/g, '').trim().split(/[^а-яa-z0-9]+/);
+      let matchesAll = true;
+      let matchCount = 0;
+      for (const part of nameParts) {
+        if (part.length > 2) {
+          matchCount++;
+          if (!normalizedText.includes(part)) {
+            matchesAll = false;
+            break;
+          }
+        }
+      }
+      if (matchCount > 0 && matchesAll) {
+        buyerId = b.id;
+        break;
+      }
+    }
+  }
+
+  // 4. Поиск причины возврата
+  let reason = '⚠️ Брак продукции / Нарушение ТУ'; // Значение по умолчанию
+  
+  if (normalizedText.includes('развакуум') || normalizedText.includes('упаковк') || normalizedText.includes('пакет') || normalizedText.includes('дыр')) {
+    reason = '💨 Развакуум / Повреждение упаковки';
+  } else if (normalizedText.includes('отказ') || normalizedText.includes('температур') || normalizedText.includes('градус') || normalizedText.includes('тепл')) {
+    reason = '❌ Отказ в приемке по качеству / Температуре';
+  } else if (normalizedText.includes('срок') || normalizedText.includes('годен') || normalizedText.includes('истек') || normalizedText.includes('просроч')) {
+    reason = '⏰ Истек срок годности при доставке';
+  } else if (normalizedText.includes('недовес') || normalizedText.includes('пересорт') || normalizedText.includes('разниц')) {
+    reason = '⚖️ Недовес / Пересортица при отгрузке';
+  } else if (normalizedText.includes('брак') || normalizedText.includes('ту') || normalizedText.includes('гнил') || normalizedText.includes('запах')) {
+    reason = '⚠️ Брак продукции / Нарушение ТУ';
+  }
+
+  return { productId, quantityKg, buyerId, reason };
+}
+

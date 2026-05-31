@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autoDetectAttributes, generateProductSku, cn } from './utils';
+import { autoDetectAttributes, generateProductSku, cn, parseOcrText } from './utils';
 
 describe('utils.ts tests', () => {
   describe('cn', () => {
@@ -41,6 +41,46 @@ describe('utils.ts tests', () => {
       ];
       const sku = generateProductSku('Свинина', existing, 'Свинина', 'Блочка');
       expect(sku).toBe('SV-BL-03');
+    });
+  });
+
+  describe('parseOcrText', () => {
+    const products = [
+      { id: 'p_pork', name: 'Шея свиная без кости', sku: 'SV-OT-01', category: 'Свинина', defaultShelfLifeDays: 15 },
+      { id: 'p_beef', name: 'Говядина в полутушах', sku: 'BV-TS-01', category: 'Говядина', defaultShelfLifeDays: 20 }
+    ];
+
+    const buyers = [
+      { id: 'b_soyuz', name: 'ООО Мясной Союз', inn: '7725489031' },
+      { id: 'b_grig', name: 'ИП Григорьев С.Ю.', inn: '503204918230' }
+    ];
+
+    it('should parse weight, product by SKU, buyer by INN and reason', () => {
+      const ocrText = `
+        АКТ ВОЗВРАТА ТОВАРА №12
+        Отправитель: ООО Мясной Союз, ИНН 7725489031
+        Товар: Шея свиная без кости (артикул: SV-OT-01)
+        Выявлен РАЗВАКУУМ пакета.
+        Фактический вес возврата: 45,5 кг.
+      `;
+      const result = parseOcrText(ocrText, products, buyers);
+      expect(result.productId).toBe('p_pork');
+      expect(result.quantityKg).toBe(45.5);
+      expect(result.buyerId).toBe('b_soyuz');
+      expect(result.reason).toBe('💨 Развакуум / Повреждение упаковки');
+    });
+
+    it('should parse product by name keywords and buyer by name keywords', () => {
+      const ocrText = `
+        Накладная от ИП Григорьев
+        Возврат говядины по причине высокой температуры в кузове.
+        Масса нетто составляет 120.50 кг.
+      `;
+      const result = parseOcrText(ocrText, products, buyers);
+      expect(result.productId).toBe('p_beef');
+      expect(result.quantityKg).toBe(120.5);
+      expect(result.buyerId).toBe('b_grig');
+      expect(result.reason).toBe('❌ Отказ в приемке по качеству / Температуре');
     });
   });
 });
