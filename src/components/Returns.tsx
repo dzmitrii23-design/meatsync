@@ -54,6 +54,18 @@ const RETURN_REASONS = [
   '📝 Прочий возврат контрагента'
 ];
 
+interface ReturnDraftItem {
+  id: string;
+  productId: string;
+  productName: string;
+  productSku: string;
+  quantityKg: number;
+  buyerId: string;
+  buyerName: string;
+  reason: string;
+  date: string;
+}
+
 export function Returns({
   products,
   buyers,
@@ -83,6 +95,9 @@ export function Returns({
   const [selectedReason, setSelectedReason] = useState(RETURN_REASONS[0]);
   const [customReason, setCustomReason] = useState('');
   const [returnDate, setReturnDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  // Пакетный ввод: draft-список позиций к проведению
+  const [drafts, setDrafts] = useState<ReturnDraftItem[]>([]);
 
   const handleOcrScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -183,8 +198,8 @@ export function Returns({
     });
   }, [returnBatches, products, buyers, searchQuery]);
 
-  // Handle Return submit
-  const handleRegisterReturn = (e: React.FormEvent) => {
+  // Добавление позиции в пакетный draft-список
+  const handleAddDraft = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedProductId) {
@@ -203,25 +218,54 @@ export function Returns({
       return;
     }
 
+    const prod = products.find(p => p.id === selectedProductId);
+    const buyer = buyers.find(b => b.id === selectedBuyerId);
+
     const finalReason = selectedReason === '📝 Прочий возврат контрагента' && customReason.trim()
       ? `Другое: ${customReason.trim()}`
       : selectedReason;
 
-    onSubmitReturn({
+    const newDraft: ReturnDraftItem = {
+      id: `draft-${Date.now()}-${Math.random()}`,
       productId: selectedProductId,
+      productName: prod?.name || 'Неизвестный продукт',
+      productSku: prod?.sku || '—',
       quantityKg: weight,
       buyerId: selectedBuyerId,
+      buyerName: buyer?.name || 'Неизвестный покупатель',
       reason: finalReason,
-      date: new Date(returnDate).toISOString()
-    });
+      date: new Date(returnDate).toISOString(),
+    };
 
-    // Reset inputs
+    setDrafts(prev => [...prev, newDraft]);
+
+    // Сброс полей формы (покупатель и дата сохраняются для удобства пакетного ввода)
     setSelectedProductId('');
     setWeightInput('');
-    setSelectedBuyerId('');
     setCustomReason('');
     
-    showNotification(`Оформлен возврат продукции в карантин: ${weightInput} кг`);
+    showNotification(`✓ Добавлено: ${prod?.name} — ${weight} кг`);
+  };
+
+  // Пакетное проведение всех позиций из draft-списка
+  const handleProcessAllReturns = () => {
+    if (drafts.length === 0) return;
+
+    const totalWeight = drafts.reduce((sum, d) => sum + d.quantityKg, 0);
+
+    drafts.forEach(d => {
+      onSubmitReturn({
+        productId: d.productId,
+        quantityKg: d.quantityKg,
+        buyerId: d.buyerId,
+        reason: d.reason,
+        date: d.date,
+      });
+    });
+
+    const count = drafts.length;
+    setDrafts([]);
+    showNotification(`🎉 Оформлено ${count} ${count === 1 ? 'возврат' : count < 5 ? 'возврата' : 'возвратов'} в карантин. Итого: ${totalWeight.toLocaleString()} кг`);
   };
 
   // Handle Dispose Action
@@ -359,7 +403,7 @@ export function Returns({
             />
           </div>
 
-          <form onSubmit={handleRegisterReturn} className="space-y-4">
+          <form onSubmit={handleAddDraft} className="space-y-4">
             
             {/* Product option */}
             <div>
@@ -458,12 +502,74 @@ export function Returns({
               className="w-full bg-amber-500 hover:bg-amber-600 active:scale-[0.98] text-white font-bold rounded-lg py-3 shadow-md hover:shadow transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer mt-2"
             >
               <Plus size={16} />
-              Оформить возврат в карантин
+              Добавить в список
             </button>
             <p className="text-[11px] text-center text-gray-400 italic">
-              Товар будет оприходован в специальный «Склад возвратов и брака»
+              Позиция добавится в пакетный список. Нажмите «Провести» для оформления.
             </p>
           </form>
+
+          {/* Пакетный draft-список позиций к оформлению */}
+          {drafts.length > 0 && (
+            <div className="mt-5 pt-4 border-t border-slate-200 animate-fade-in">
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                  📋 К оформлению
+                  <span className="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-extrabold border border-amber-200">
+                    {drafts.length}
+                  </span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setDrafts([])}
+                  className="text-[10px] text-red-600 hover:text-red-800 font-bold flex items-center gap-1 bg-red-50 hover:bg-red-100 border border-red-200 rounded px-2 py-0.5 cursor-pointer transition"
+                >
+                  Очистить
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+                {drafts.map(d => (
+                  <div key={d.id} className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate">{d.productName}</p>
+                      <p className="text-[10px] text-slate-500 truncate">
+                        {d.buyerName} · {d.reason.length > 25 ? d.reason.slice(0, 25) + '…' : d.reason}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-extrabold text-amber-700 whitespace-nowrap">{d.quantityKg} кг</span>
+                      <button
+                        type="button"
+                        onClick={() => setDrafts(prev => prev.filter(x => x.id !== d.id))}
+                        className="text-slate-400 hover:text-red-500 p-1 rounded transition cursor-pointer"
+                        title="Удалить позицию"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-slate-200">
+                <div className="flex justify-between items-center mb-2.5 text-xs">
+                  <span className="text-slate-500 font-medium">Итого вес:</span>
+                  <span className="font-extrabold text-slate-900 text-sm">
+                    {drafts.reduce((sum, d) => sum + d.quantityKg, 0).toLocaleString()} кг
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleProcessAllReturns}
+                  className="w-full bg-green-600 hover:bg-green-700 active:scale-[0.98] text-white font-bold rounded-lg py-2.5 shadow-md hover:shadow transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <CheckCircle2 size={14} />
+                  Провести {drafts.length} {drafts.length === 1 ? 'возврат' : drafts.length < 5 ? 'возврата' : 'возвратов'}
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
 
