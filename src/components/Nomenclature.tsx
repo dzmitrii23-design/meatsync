@@ -91,6 +91,8 @@ export function Nomenclature({
     category: -1,
     defaultShelfLifeDays: -1,
     notifyBeforeDays: -1,
+    rawMaterial: -1,
+    packagingType: -1,
   });
   const [parsedProducts, setParsedProducts] = useState<Omit<Product, 'id'>[]>([]);
   const [duplicateAction, setDuplicateAction] = useState<'overwrite' | 'preserve'>('preserve');
@@ -205,7 +207,15 @@ export function Nomenclature({
         setExcelRows(dataRows);
 
         // Auto match columns based on keywords
-        const initialMap: Record<string, number> = { sku: -1, name: -1, category: -1, defaultShelfLifeDays: -1, notifyBeforeDays: -1 };
+        const initialMap: Record<string, number> = { 
+          sku: -1, 
+          name: -1, 
+          category: -1, 
+          defaultShelfLifeDays: -1, 
+          notifyBeforeDays: -1,
+          rawMaterial: -1,
+          packagingType: -1
+        };
         
         rawHeaders.forEach((header, index) => {
           const lower = header.toLowerCase();
@@ -213,12 +223,16 @@ export function Nomenclature({
             initialMap.sku = index;
           } else if (lower.includes('наименование') || lower.includes('название') || lower.includes('товар') || lower.includes('номенклатура') || lower.includes('продукт')) {
             initialMap.name = index;
-          } else if (lower.includes('категория') || lower.includes('группа') || lower.includes('вид')) {
+          } else if (lower.includes('категория') || lower.includes('состояние') || lower.includes('вид')) {
             initialMap.category = index;
           } else if (lower.includes('срок') || lower.includes('хранения') || lower.includes('годн') || lower.includes('дней')) {
             initialMap.defaultShelfLifeDays = index;
           } else if (lower.includes('оповещ') || lower.includes('предупрежд') || lower.includes('уведомл') || lower.includes('notify')) {
             initialMap.notifyBeforeDays = index;
+          } else if (lower.includes('сырь') || lower.includes('материал') || lower.includes('raw') || lower.includes('мясо')) {
+            initialMap.rawMaterial = index;
+          } else if (lower.includes('упаковк') || lower.includes('фасовк') || lower.includes('pack') || lower.includes('формат')) {
+            initialMap.packagingType = index;
           }
         });
 
@@ -227,6 +241,9 @@ export function Nomenclature({
         if (initialMap.name === -1 && rawHeaders.length > 1) initialMap.name = 1;
         if (initialMap.category === -1 && rawHeaders.length > 2) initialMap.category = 2;
         if (initialMap.defaultShelfLifeDays === -1 && rawHeaders.length > 3) initialMap.defaultShelfLifeDays = 3;
+        if (initialMap.notifyBeforeDays === -1 && rawHeaders.length > 4) initialMap.notifyBeforeDays = 4;
+        if (initialMap.rawMaterial === -1 && rawHeaders.length > 5) initialMap.rawMaterial = 5;
+        if (initialMap.packagingType === -1 && rawHeaders.length > 6) initialMap.packagingType = 6;
 
         setColumnMap(initialMap);
         setImportStep('mapping');
@@ -244,6 +261,8 @@ export function Nomenclature({
       const sku = columnMap.sku !== -1 ? String(row[columnMap.sku] || '').trim() : '';
       const name = columnMap.name !== -1 ? String(row[columnMap.name] || '').trim() : '';
       const category = columnMap.category !== -1 ? String(row[columnMap.category] || '').trim() : 'Общие';
+      const rawMaterial = columnMap.rawMaterial !== -1 ? String(row[columnMap.rawMaterial] || '').trim() : '';
+      const packagingType = columnMap.packagingType !== -1 ? String(row[columnMap.packagingType] || '').trim() : '';
       
       let shelfLife = 180;
       if (columnMap.defaultShelfLifeDays !== -1) {
@@ -268,6 +287,8 @@ export function Nomenclature({
           category,
           defaultShelfLifeDays: shelfLife,
           notifyBeforeDays: notifyDays,
+          rawMaterial: rawMaterial || undefined,
+          packagingType: packagingType || undefined,
         });
       }
     });
@@ -485,6 +506,30 @@ export function Nomenclature({
                         {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                       </select>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-4 items-center">
+                      <span className="font-semibold text-sm text-gray-700">Тип сырья</span>
+                      <select 
+                        value={columnMap.rawMaterial} 
+                        onChange={e => setColumnMap({ ...columnMap, rawMaterial: Number(e.target.value) })}
+                        className="rounded-md border border-gray-300 p-2 shadow-sm text-sm bg-white"
+                      >
+                        <option value={-1}>-- Определять автоматически --</option>
+                        {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 items-center">
+                      <span className="font-semibold text-sm text-gray-700">Тип фасовки / упаковки</span>
+                      <select 
+                        value={columnMap.packagingType} 
+                        onChange={e => setColumnMap({ ...columnMap, packagingType: Number(e.target.value) })}
+                        className="rounded-md border border-gray-300 p-2 shadow-sm text-sm bg-white"
+                      >
+                        <option value={-1}>-- Определять автоматически --</option>
+                        {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                      </select>
+                    </div>
                   </div>
 
                   <div className="flex justify-between items-center pt-2">
@@ -531,6 +576,8 @@ export function Nomenclature({
                           <th className="px-4 py-2 text-left">Артикул</th>
                           <th className="px-4 py-2 text-left">Наименование</th>
                           <th className="px-4 py-2 text-left">Категория</th>
+                          <th className="px-4 py-2 text-left">Сырье</th>
+                          <th className="px-4 py-2 text-left">Упаковка</th>
                           <th className="px-4 py-2 text-left">Срок годности</th>
                           <th className="px-4 py-2 text-left">Оповещение</th>
                         </tr>
@@ -541,6 +588,8 @@ export function Nomenclature({
                             <td className="px-4 py-2 font-mono text-gray-900">{p.sku || <span className="text-gray-400 italic font-sans text-xs">Авто-генерация</span>}</td>
                             <td className="px-4 py-2 text-gray-600 font-medium">{p.name}</td>
                             <td className="px-4 py-2 text-gray-500">{p.category}</td>
+                            <td className="px-4 py-2 text-gray-500">{p.rawMaterial || <span className="text-gray-400 italic text-xs">Автоопределение</span>}</td>
+                            <td className="px-4 py-2 text-gray-500">{p.packagingType || <span className="text-gray-400 italic text-xs">Автоопределение</span>}</td>
                             <td className="px-4 py-2 text-gray-500">{p.defaultShelfLifeDays} дн.</td>
                             <td className="px-4 py-2 text-gray-500">За {p.notifyBeforeDays ?? 14} дн.</td>
                           </tr>
