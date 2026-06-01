@@ -644,6 +644,482 @@ export function useAppStore() {
     }));
   };
 
+  const deleteTransaction = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const tx = state.transactions.find(t => t.id === id);
+    if (!tx) {
+      return { success: false, error: 'Транзакция не найдена' };
+    }
+
+    let nextBatches = [...state.batches];
+    let supabaseOperations: (() => Promise<void>)[] = [];
+
+    if (tx.type === 'IN') {
+      const batch = state.batches.find(b => b.id === tx.batchId);
+      if (batch) {
+        if (batch.quantityKg < batch.initialQuantityKg) {
+          return {
+            success: false,
+            error: `Невозможно удалить приход: с этой партии уже списано ${batch.initialQuantityKg - batch.quantityKg} кг. Сначала удалите соответствующие расходы.`
+          };
+        }
+        nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
+        if (isOnline) {
+          supabaseOperations.push(async () => {
+            const { error } = await supabase.from('batches').delete().eq('id', tx.batchId);
+            if (error) throw error;
+          });
+        }
+      }
+    } else if (tx.type === 'OUT') {
+      const batch = state.batches.find(b => b.id === tx.batchId);
+      if (batch) {
+        const updatedQty = batch.quantityKg + tx.quantityKg;
+        nextBatches = nextBatches.map(b =>
+          b.id === tx.batchId ? { ...b, quantityKg: updatedQty } : b
+        );
+        if (isOnline) {
+          supabaseOperations.push(async () => {
+            const { error } = await supabase.from('batches').update({ quantityKg: updatedQty }).eq('id', tx.batchId);
+            if (error) throw error;
+          });
+        }
+      } else {
+        const product = state.products.find(p => p.id === tx.productId);
+        const shelfLifeDays = product?.defaultShelfLifeDays || 30;
+        const receivedAt = tx.date;
+        const expiresAt = new Date(new Date(receivedAt).getTime() + shelfLifeDays * 86400000).toISOString();
+
+        const newBatch: Batch = {
+          id: tx.batchId || generateId(),
+          productId: tx.productId,
+          locationId: tx.fromLocationId || 'loc_main_1',
+          quantityKg: tx.quantityKg,
+          initialQuantityKg: tx.quantityKg,
+          receivedAt,
+          expiresAt
+        };
+        nextBatches.push(newBatch);
+        if (isOnline) {
+          supabaseOperations.push(async () => {
+            const { error } = await supabase.from('batches').insert(newBatch);
+            if (error) throw error;
+          });
+        }
+      }
+    } else if (tx.type === 'MOVE') {
+      let targetBatch = state.batches.find(b => b.id === tx.batchId && b.locationId === tx.toLocationId);
+
+      if (targetBatch) {
+        nextBatches = nextBatches.map(b =>
+          b.id === tx.batchId ? { ...b, locationId: tx.fromLocationId } : b
+        );
+        if (isOnline) {
+          supabaseOperations.push(async () => {
+            const { error } = await supabase.from('batches').update({ locationId: tx.fromLocationId }).eq('id', tx.batchId);
+            if (error) throw error;
+          });
+        }
+      } else {
+        const partialTargetBatch = state.batches.find(b =>
+          b.productId === tx.productId &&
+          b.locationId === tx.toLocationId &&
+          b.quantityKg >= tx.quantityKg
+        );
+
+        if (!partialTargetBatch) {
+          return {
+            success: false,
+            error: 'Невозможно отменить перемещение: продукция в целевой локации уже списана или отсутствует.'
+          };
+        }
+
+        const nextTargetQty = partialTargetBatch.quantityKg - tx.quantityKg;
+        if (nextTargetQty <= 0) {
+          nextBatches = nextBatches.filter(b => b.id !== partialTargetBatch.id);
+          if (isOnline) {
+            supabaseOperations.push(async () => {
+              const { error } = await supabase.from('batches').delete().eq('id', partialTargetBatch.id);
+              if (error) throw error;
+            });
+          }
+        } else {
+          nextBatches = nextBatches.map(b =>
+            b.id === partialTargetBatch.id ? { ...b, quantityKg: nextTargetQty } : b
+          );
+          if (isOnline) {
+            supabaseOperations.push(async () => {
+              const { error } = await supabase.from('batches').update({ quantityKg: nextTargetQty }).eq('id', partialTargetBatch.id);
+              if (error) throw error;
+            });
+          }
+        }
+
+        const sourceBatch = state.batches.find(b => b.id === tx.batchId);
+        if (sourceBatch) {
+          const nextSourceQty = sourceBatch.quantityKg + tx.quantityKg;
+          nextBatches = nextBatches.map(b =>
+            b.id === tx.batchId ? { ...b, quantityKg: nextSourceQty } : b
+          );
+          if (isOnline) {
+            supabaseOperations.push(async () => {
+              const { error } = await supabase.from('batches').update({ quantityKg: nextSourceQty }).eq('id', tx.batchId);
+              if (error) throw error;
+            });
+          }
+        } else {
+          const product = state.products.find(p => p.id === tx.productId);
+          const shelfLifeDays = product?.defaultShelfLifeDays || 30;
+          const receivedAt = tx.date;
+          const expiresAt = new Date(new Date(receivedAt).getTime() + shelfLifeDays * 86400000).toISOString();
+
+          const newBatch: Batch = {
+            id: tx.batchId || generateId(),
+            productId: tx.productId,
+            locationId: tx.fromLocationId || 'loc_main_1',
+            quantityKg: tx.quantityKg,
+            initialQuantityKg: tx.quantityKg,
+            receivedAt,
+            expiresAt
+          };
+          nextBatches.push(newBatch);
+          if (isOnline) {
+            supabaseOperations.push(async () => {
+              const { error } = await supabase.from('batches').insert(newBatch);
+              if (error) throw error;
+            });
+          }
+        }
+      }
+    } else if (tx.type === 'RETURN') {
+      const batch = state.batches.find(b => b.id === tx.batchId);
+      if (batch) {
+        if (batch.quantityKg < batch.initialQuantityKg) {
+          return {
+            success: false,
+            error: `Невозможно отменить возврат: возвращенная продукция уже частично списана (${batch.initialQuantityKg - batch.quantityKg} кг). Сначала удалите расходы.`
+          };
+        }
+        nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
+        if (isOnline) {
+          supabaseOperations.push(async () => {
+            const { error } = await supabase.from('batches').delete().eq('id', tx.batchId);
+            if (error) throw error;
+          });
+        }
+      }
+    }
+
+    if (isOnline) {
+      supabaseOperations.push(async () => {
+        const { error } = await supabase.from('transactions').delete().eq('id', id);
+        if (error) throw error;
+      });
+    }
+
+    if (isOnline && supabaseOperations.length > 0) {
+      try {
+        await Promise.all(supabaseOperations.map(op => op()));
+      } catch (err) {
+        console.error('Failed to sync transaction deletion with Supabase:', err);
+        return { success: false, error: 'Ошибка синхронизации с облаком при удалении.' };
+      }
+    }
+
+    setState(prev => ({
+      ...prev,
+      batches: nextBatches,
+      transactions: prev.transactions.filter(t => t.id !== id)
+    }));
+
+    return { success: true };
+  };
+
+  const updateTransaction = async (
+    id: string,
+    updates: {
+      quantityKg?: number;
+      date?: string;
+      notes?: string;
+      outcomeType?: 'sale' | 'waste' | 'mpc';
+      buyerId?: string;
+      wasteReason?: string;
+    }
+  ): Promise<{ success: boolean; error?: string }> => {
+    const tx = state.transactions.find(t => t.id === id);
+    if (!tx) {
+      return { success: false, error: 'Транзакция не найдена' };
+    }
+
+    let nextBatches = [...state.batches];
+    let nextTransactions = [...state.transactions];
+    let supabaseBatchesUpdates: (() => Promise<void>)[] = [];
+    let supabaseTxUpdate: (() => Promise<void>) | null = null;
+
+    const oldQty = tx.quantityKg;
+    const newQty = updates.quantityKg !== undefined ? updates.quantityKg : oldQty;
+    const diff = newQty - oldQty;
+
+    if (diff !== 0) {
+      if (tx.type === 'IN') {
+        const batch = state.batches.find(b => b.id === tx.batchId);
+        if (!batch) {
+          return { success: false, error: 'Связанная партия не найдена на складе.' };
+        }
+        const nextQty = batch.quantityKg + diff;
+        const nextInitialQty = batch.initialQuantityKg + diff;
+        
+        if (nextQty < 0 || nextInitialQty < 0) {
+          return {
+            success: false,
+            error: `Невозможно уменьшить приход на ${Math.abs(diff)} кг: с этой партии уже списано больше продукции, чем останется.`
+          };
+        }
+
+        nextBatches = nextBatches.map(b =>
+          b.id === tx.batchId ? { ...b, quantityKg: nextQty, initialQuantityKg: nextInitialQty } : b
+        );
+        if (isOnline) {
+          supabaseBatchesUpdates.push(async () => {
+            const { error } = await supabase.from('batches').update({ quantityKg: nextQty, initialQuantityKg: nextInitialQty }).eq('id', tx.batchId);
+            if (error) throw error;
+          });
+        }
+      } else if (tx.type === 'OUT') {
+        const batch = state.batches.find(b => b.id === tx.batchId);
+        if (batch) {
+          const nextQty = batch.quantityKg - diff;
+          if (nextQty < 0) {
+            return {
+              success: false,
+              error: `Недостаточно остатка на партии для увеличения расхода на ${diff} кг. Доступно: ${batch.quantityKg} кг.`
+            };
+          }
+          nextBatches = nextBatches.map(b =>
+            b.id === tx.batchId ? { ...b, quantityKg: nextQty } : b
+          );
+          if (isOnline) {
+            supabaseBatchesUpdates.push(async () => {
+              const { error } = await supabase.from('batches').update({ quantityKg: nextQty }).eq('id', tx.batchId);
+              if (error) throw error;
+            });
+          }
+        } else {
+          if (diff < 0) {
+            const product = state.products.find(p => p.id === tx.productId);
+            const shelfLifeDays = product?.defaultShelfLifeDays || 30;
+            const receivedAt = tx.date;
+            const expiresAt = new Date(new Date(receivedAt).getTime() + shelfLifeDays * 86400000).toISOString();
+
+            const newBatch: Batch = {
+              id: tx.batchId || generateId(),
+              productId: tx.productId,
+              locationId: tx.fromLocationId || 'loc_main_1',
+              quantityKg: Math.abs(diff),
+              initialQuantityKg: oldQty,
+              receivedAt,
+              expiresAt
+            };
+            nextBatches.push(newBatch);
+            if (isOnline) {
+              supabaseBatchesUpdates.push(async () => {
+                const { error } = await supabase.from('batches').insert(newBatch);
+                if (error) throw error;
+              });
+            }
+          } else {
+            return {
+              success: false,
+              error: 'Невозможно увеличить расход: связанная партия была полностью списана до нуля и удалена.'
+            };
+          }
+        }
+      } else if (tx.type === 'MOVE') {
+        let targetBatch = state.batches.find(b => b.id === tx.batchId && b.locationId === tx.toLocationId);
+        let partialTargetBatch = targetBatch;
+
+        if (!targetBatch) {
+          partialTargetBatch = state.batches.find(b =>
+            b.productId === tx.productId &&
+            b.locationId === tx.toLocationId &&
+            b.quantityKg >= diff
+          );
+        }
+
+        if (!partialTargetBatch) {
+          return {
+            success: false,
+            error: 'Невозможно изменить вес перемещения: целевая партия уже списана или отсутствует.'
+          };
+        }
+
+        const nextTargetQty = partialTargetBatch.quantityKg - diff;
+        if (nextTargetQty < 0) {
+          return {
+            success: false,
+            error: `Недостаточно остатка в целевой локации для уменьшения на ${diff} кг.`
+          };
+        }
+
+        if (nextTargetQty === 0) {
+          nextBatches = nextBatches.filter(b => b.id !== partialTargetBatch.id);
+          if (isOnline) {
+            supabaseBatchesUpdates.push(async () => {
+              const { error } = await supabase.from('batches').delete().eq('id', partialTargetBatch.id);
+              if (error) throw error;
+            });
+          }
+        } else {
+          nextBatches = nextBatches.map(b =>
+            b.id === partialTargetBatch.id ? { ...b, quantityKg: nextTargetQty } : b
+          );
+          if (isOnline) {
+            supabaseBatchesUpdates.push(async () => {
+              const { error } = await supabase.from('batches').update({ quantityKg: nextTargetQty }).eq('id', partialTargetBatch.id);
+              if (error) throw error;
+            });
+          }
+        }
+
+        const sourceBatch = state.batches.find(b => b.id === tx.batchId);
+        if (sourceBatch) {
+          const nextSourceQty = sourceBatch.quantityKg + diff;
+          if (nextSourceQty < 0) {
+            return {
+              success: false,
+              error: `Недостаточно остатка в исходной партии для списания дополнительных ${diff} кг.`
+            };
+          }
+          nextBatches = nextBatches.map(b =>
+            b.id === tx.batchId ? { ...b, quantityKg: nextSourceQty } : b
+          );
+          if (isOnline) {
+            supabaseBatchesUpdates.push(async () => {
+              const { error } = await supabase.from('batches').update({ quantityKg: nextSourceQty }).eq('id', tx.batchId);
+              if (error) throw error;
+            });
+          }
+        } else {
+          if (diff > 0) {
+            return {
+              success: false,
+              error: 'Невозможно увеличить перемещение: исходная партия была удалена.'
+            };
+          }
+          const product = state.products.find(p => p.id === tx.productId);
+          const shelfLifeDays = product?.defaultShelfLifeDays || 30;
+          const receivedAt = tx.date;
+          const expiresAt = new Date(new Date(receivedAt).getTime() + shelfLifeDays * 86400000).toISOString();
+
+          const newBatch: Batch = {
+            id: tx.batchId || generateId(),
+            productId: tx.productId,
+            locationId: tx.fromLocationId || 'loc_main_1',
+            quantityKg: Math.abs(diff),
+            initialQuantityKg: Math.abs(diff),
+            receivedAt,
+            expiresAt
+          };
+          nextBatches.push(newBatch);
+          if (isOnline) {
+            supabaseBatchesUpdates.push(async () => {
+              const { error } = await supabase.from('batches').insert(newBatch);
+              if (error) throw error;
+            });
+          }
+        }
+      } else if (tx.type === 'RETURN') {
+        const batch = state.batches.find(b => b.id === tx.batchId);
+        if (!batch) {
+          return { success: false, error: 'Связанная партия возврата не найдена.' };
+        }
+        const nextQty = batch.quantityKg + diff;
+        const nextInitialQty = batch.initialQuantityKg + diff;
+
+        if (nextQty < 0 || nextInitialQty < 0) {
+          return {
+            success: false,
+            error: `Невозможно уменьшить возврат на ${Math.abs(diff)} кг: возвращенная продукция уже частично списана.`
+          };
+        }
+
+        nextBatches = nextBatches.map(b =>
+          b.id === tx.batchId ? { ...b, quantityKg: nextQty, initialQuantityKg: nextInitialQty } : b
+        );
+        if (isOnline) {
+          supabaseBatchesUpdates.push(async () => {
+            const { error } = await supabase.from('batches').update({ quantityKg: nextQty, initialQuantityKg: nextInitialQty }).eq('id', tx.batchId);
+            if (error) throw error;
+          });
+        }
+      }
+    }
+
+    let enrichedNotes = updates.notes !== undefined ? updates.notes : tx.notes;
+    const outcomeType = updates.outcomeType !== undefined ? updates.outcomeType : tx.outcomeType;
+    const buyerId = updates.buyerId !== undefined ? updates.buyerId : tx.buyerId;
+    const wasteReason = updates.wasteReason !== undefined ? updates.wasteReason : tx.wasteReason;
+    
+    if (tx.type === 'OUT' && (updates.outcomeType !== undefined || updates.buyerId !== undefined || updates.wasteReason !== undefined || updates.notes !== undefined)) {
+      const noteCore = updates.notes !== undefined ? updates.notes : '';
+      if (outcomeType === 'sale' && buyerId) {
+        const bObj = state.buyers.find(by => by.id === buyerId);
+        const bName = bObj ? bObj.name : 'Покупатель';
+        enrichedNotes = `Продажа: ${bName}${noteCore ? ` (${noteCore})` : ''}`;
+      } else if (outcomeType === 'waste' && wasteReason) {
+        enrichedNotes = `Списание (Утиль): ${wasteReason}${noteCore ? ` (${noteCore})` : ''}`;
+      } else if (outcomeType === 'mpc') {
+        enrichedNotes = `Перемещение в МПЦ${noteCore ? ` (${noteCore})` : ''}`;
+      }
+    } else if (tx.type === 'RETURN' && (updates.buyerId !== undefined || updates.notes !== undefined)) {
+      const noteCore = updates.notes !== undefined ? updates.notes : '';
+      const bObj = state.buyers.find(by => by.id === buyerId);
+      const bName = bObj ? bObj.name : 'Покупатель';
+      const reason = updates.notes || tx.notes || 'Причина не указана';
+      enrichedNotes = `Возврат от контрагента "${bName}". Причина: ${reason}`;
+    }
+
+    const updatedTx: Transaction = {
+      ...tx,
+      quantityKg: newQty,
+      date: updates.date !== undefined ? updates.date : tx.date,
+      notes: enrichedNotes,
+      outcomeType,
+      buyerId,
+      wasteReason
+    };
+
+    nextTransactions = nextTransactions.map(t => t.id === id ? updatedTx : t);
+
+    if (isOnline) {
+      supabaseTxUpdate = async () => {
+        const { error } = await supabase.from('transactions').update(updatedTx).eq('id', id);
+        if (error) throw error;
+      };
+    }
+
+    if (isOnline) {
+      try {
+        if (supabaseBatchesUpdates.length > 0) {
+          await Promise.all(supabaseBatchesUpdates.map(op => op()));
+        }
+        if (supabaseTxUpdate) {
+          await supabaseTxUpdate();
+        }
+      } catch (err) {
+        console.error('Failed to sync transaction update with Supabase:', err);
+        return { success: false, error: 'Ошибка синхронизации с облаком при обновлении.' };
+      }
+    }
+
+    setState(prev => ({
+      ...prev,
+      batches: nextBatches,
+      transactions: nextTransactions
+    }));
+
+    return { success: true };
+  };
+
   return {
     state,
     loading,
@@ -659,5 +1135,7 @@ export function useAppStore() {
     updateBuyer,
     deleteBuyer,
     processReturn,
+    deleteTransaction,
+    updateTransaction,
   };
 }

@@ -26,7 +26,9 @@ export default function App() {
     addBuyer,
     updateBuyer,
     deleteBuyer,
-    processReturn
+    processReturn,
+    deleteTransaction,
+    updateTransaction
   } = useAppStore();
   
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
@@ -236,6 +238,8 @@ export default function App() {
               products={state.products}
               locations={state.locations}
               buyers={state.buyers || []}
+              onDeleteTransaction={role === 'ADMIN' ? deleteTransaction : undefined}
+              onUpdateTransaction={role === 'ADMIN' ? updateTransaction : undefined}
             />
           )}
 

@@ -10,11 +10,11 @@ import {
   Calendar,
   AlertTriangle,
   User,
-  MapPin,
-  TrendingUp,
   FileClock,
   Trash2,
-  Factory
+  Factory,
+  Pencil,
+  X
 } from 'lucide-react';
 
 interface Props {
@@ -22,16 +22,45 @@ interface Props {
   products: Product[];
   locations: StorageLocation[];
   buyers: Buyer[];
-  onRemoveTransaction?: (id: string) => void; // Optional rollback/cleanup
+  onDeleteTransaction?: (id: string) => Promise<{ success: boolean; error?: string }>;
+  onUpdateTransaction?: (id: string, updates: any) => Promise<{ success: boolean; error?: string }>;
 }
 
-export function Journal({ transactions, products, locations, buyers, onRemoveTransaction }: Props) {
+export function Journal({
+  transactions,
+  products,
+  locations,
+  buyers,
+  onDeleteTransaction,
+  onUpdateTransaction
+}: Props) {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'IN' | 'OUT_SALE' | 'OUT_WASTE' | 'OUT_MPC' | 'MOVE' | 'RETURN'>('ALL');
   const [dateFilter, setDateFilter] = useState<'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM'>('ALL');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [confirmDeleteTransactionId, setConfirmDeleteTransactionId] = useState<string | null>(null);
+
+  // States for Editing Transaction
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteErrorTxId, setDeleteErrorTxId] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{
+    quantityKg: number;
+    date: string;
+    notes: string;
+    outcomeType?: 'sale' | 'waste' | 'mpc';
+    buyerId?: string;
+    wasteReason?: string;
+  }>({
+    quantityKg: 0,
+    date: '',
+    notes: '',
+    outcomeType: 'sale',
+    buyerId: '',
+    wasteReason: ''
+  });
 
   // Helpers for locations & products
   const getProduct = (id: string) => products.find((p) => p.id === id);
@@ -74,14 +103,14 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
         const tDate = new Date(t.date);
         const now = new Date();
         const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        
+
         if (dateFilter === 'TODAY' && tDate.getTime() < startOfToday) return false;
-        
+
         if (dateFilter === 'WEEK') {
           const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
           if (tDate.getTime() < sevenDaysAgo) return false;
         }
-        
+
         if (dateFilter === 'MONTH') {
           const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
           if (tDate.getTime() < thirtyDaysAgo) return false;
@@ -103,7 +132,7 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
 
       return true;
     });
-  }, [transactions, products, buyers, searchTerm, typeFilter, dateFilter]);
+  }, [transactions, products, buyers, searchTerm, typeFilter, dateFilter, startDate, endDate]);
 
   // Statistics calculations based on filtered/unfiltered
   const stats = useMemo(() => {
@@ -127,7 +156,6 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
         } else if (t.outcomeType === 'mpc') {
           mpcKg += t.quantityKg;
         } else {
-          // Default to sale if not specified or is sale
           saleKg += t.quantityKg;
         }
       }
@@ -144,6 +172,104 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
     if (t.outcomeType === 'mpc') return { text: 'В МПЦ', color: 'bg-purple-100 text-purple-800 border-purple-200' };
     return { text: 'Продажа', color: 'bg-blue-100 text-blue-800 border-blue-200' };
   };
+
+  const startEdit = (t: Transaction) => {
+    const dt = new Date(t.date);
+    const tzOffset = dt.getTimezoneOffset() * 60000;
+    const localISOTime = new Date(dt.getTime() - tzOffset).toISOString().slice(0, 16);
+
+    setEditingTransaction(t);
+    setEditError(null);
+
+    let cleanNotes = t.notes || '';
+    if (t.type === 'OUT') {
+      if (t.outcomeType === 'sale' && t.buyerId) {
+        const bObj = buyers.find(by => by.id === t.buyerId);
+        const prefix = bObj ? `Продажа: ${bObj.name}` : 'Продажа:';
+        if (cleanNotes.startsWith(prefix)) {
+          cleanNotes = cleanNotes.slice(prefix.length).replace(/^\s*\((.*)\)\s*$/, '$1');
+        }
+      } else if (t.outcomeType === 'waste' && t.wasteReason) {
+        const prefix = `Списание (Утиль): ${t.wasteReason}`;
+        if (cleanNotes.startsWith(prefix)) {
+          cleanNotes = cleanNotes.slice(prefix.length).replace(/^\s*\((.*)\)\s*$/, '$1');
+        }
+      } else if (t.outcomeType === 'mpc') {
+        const prefix = `Перемещение в МПЦ`;
+        if (cleanNotes.startsWith(prefix)) {
+          cleanNotes = cleanNotes.slice(prefix.length).replace(/^\s*\((.*)\)\s*$/, '$1');
+        }
+      }
+    } else if (t.type === 'RETURN' && t.buyerId) {
+      const bObj = buyers.find(by => by.id === t.buyerId);
+      const prefix = bObj ? `Возврат от контрагента "${bObj.name}". Причина: ` : '';
+      if (prefix && cleanNotes.startsWith(prefix)) {
+        cleanNotes = cleanNotes.slice(prefix.length);
+      }
+    }
+
+    setEditForm({
+      quantityKg: t.quantityKg,
+      date: localISOTime,
+      notes: cleanNotes,
+      outcomeType: t.outcomeType || 'sale',
+      buyerId: t.buyerId || '',
+      wasteReason: t.wasteReason || ''
+    });
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTransaction || !onUpdateTransaction) return;
+
+    if (editForm.quantityKg <= 0) {
+      setEditError('Количество должно быть больше нуля.');
+      return;
+    }
+
+    if (editingTransaction.type === 'OUT' && editForm.outcomeType === 'sale' && !editForm.buyerId) {
+      setEditError('Необходимо выбрать покупателя для продажи.');
+      return;
+    }
+
+    if (editingTransaction.type === 'OUT' && editForm.outcomeType === 'waste' && !editForm.wasteReason.trim()) {
+      setEditError('Необходимо указать причину утилизации.');
+      return;
+    }
+
+    const isoDate = new Date(editForm.date).toISOString();
+
+    const res = await onUpdateTransaction(editingTransaction.id, {
+      quantityKg: editForm.quantityKg,
+      date: isoDate,
+      notes: editForm.notes,
+      outcomeType: editForm.outcomeType,
+      buyerId: editForm.buyerId || undefined,
+      wasteReason: editForm.wasteReason || undefined
+    });
+
+    if (res.success) {
+      setEditingTransaction(null);
+    } else {
+      setEditError(res.error || 'Произошла ошибка при обновлении.');
+    }
+  };
+
+  const handleDeleteTransaction = async (id: string) => {
+    if (!onDeleteTransaction) return;
+    setDeleteError(null);
+    setDeleteErrorTxId(null);
+
+    const res = await onDeleteTransaction(id);
+    if (res.success) {
+      setConfirmDeleteTransactionId(null);
+    } else {
+      setDeleteError(res.error || 'Невозможно удалить операцию.');
+      setDeleteErrorTxId(id);
+    }
+  };
+
+  const hasActions = !!onDeleteTransaction || !!onUpdateTransaction;
 
   return (
     <div className="space-y-6">
@@ -323,8 +449,8 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
                 <th scope="col" className="px-6 py-4.5 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Количество</th>
                 <th scope="col" className="px-6 py-4.5 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Откуда → Куда</th>
                 <th scope="col" className="px-6 py-4.5 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Контрагент / Комментарий</th>
-                {onRemoveTransaction && (
-                  <th scope="col" className="px-6 py-4.5 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Действие</th>
+                {hasActions && (
+                  <th scope="col" className="px-6 py-4.5 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Действия</th>
                 )}
               </tr>
             </thead>
@@ -361,7 +487,9 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
                       {product ? (
                         <div>
                           <p className="font-semibold text-gray-950 leading-snug">{product.name}</p>
-                          <p className="text-xs text-gray-500 mt-0.5 font-mono">SKU: {product.sku} | Партия: <span className="bg-slate-100 px-1 py-0.5 rounded font-bold">{t.batchId}</span></p>
+                          <p className="text-xs text-gray-500 mt-0.5 font-mono">
+                            SKU: {product.sku} | Партия: <span className="bg-slate-100 px-1 py-0.5 rounded font-bold">{t.batchId}</span>
+                          </p>
                         </div>
                       ) : (
                         <p className="text-gray-400 italic">Продукция удалена ({t.productId})</p>
@@ -404,7 +532,7 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
 
                     {/* Details comments */}
                     <td className="px-6 py-4 text-sm font-sans text-gray-600 max-w-xs">
-                      {t.notes && <div className="text-gray-900 font-medium">{t.notes}</div>}
+                      {t.notes && <div className="text-gray-900 font-medium whitespace-pre-wrap">{t.notes}</div>}
                       {t.buyerId && (
                         <div className="flex items-center gap-1 text-blue-800 bg-blue-50/80 border border-blue-200 text-xs font-semibold rounded-lg px-2 py-1 mt-1 self-start select-none w-fit">
                           <User size={12} className="text-blue-500" /> {getBuyerName(t.buyerId)}
@@ -420,43 +548,68 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
                       )}
                     </td>
 
-                    {/* Clean up / roll back transaction */}
-                    {onRemoveTransaction && (
+                    {/* Actions Column */}
+                    {hasActions && (
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                        {confirmDeleteTransactionId === t.id ? (
-                          <div className="flex flex-col items-end gap-1.5 animate-fade-in max-w-[200px] ml-auto">
-                            <span className="text-[10px] text-red-600 font-bold leading-tight text-right block break-words">
-                              Удалить запись из лога? (Склад не изменится)
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => {
-                                  onRemoveTransaction(t.id);
-                                  setConfirmDeleteTransactionId(null);
-                                }}
-                                className="bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer transition-colors"
-                              >
-                                Да, удалить
-                              </button>
-                              <button
-                                onClick={() => setConfirmDeleteTransactionId(null)}
-                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer transition-colors"
-                              >
-                                Отмена
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setConfirmDeleteTransactionId(t.id);
-                            }}
-                            className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-lg transition cursor-pointer"
-                            title="Удалить запись"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          {onUpdateTransaction && (
+                            <button
+                              onClick={() => startEdit(t)}
+                              className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-lg transition cursor-pointer"
+                              title="Редактировать запись"
+                            >
+                              <Pencil size={15} />
+                            </button>
+                          )}
+
+                          {onDeleteTransaction && (
+                            <>
+                              {confirmDeleteTransactionId === t.id ? (
+                                <div className="flex flex-col items-end gap-1.5 animate-fade-in max-w-[220px] ml-auto">
+                                  {deleteError && deleteErrorTxId === t.id ? (
+                                    <span className="text-[10px] text-red-600 font-bold leading-tight text-right block break-words bg-red-50 p-2 border border-red-200 rounded-lg shadow-sm mb-1 font-sans">
+                                      ⚠️ {deleteError}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-red-600 font-bold leading-tight text-right block break-words font-sans">
+                                      Внимание! Это действие физически откатит остатки на складе. Отменить?
+                                    </span>
+                                  )}
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleDeleteTransaction(t.id)}
+                                      className="bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer transition-colors shadow-sm font-sans"
+                                    >
+                                      Да, удалить
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setConfirmDeleteTransactionId(null);
+                                        setDeleteError(null);
+                                        setDeleteErrorTxId(null);
+                                      }}
+                                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer transition-colors font-sans"
+                                    >
+                                      {deleteError && deleteErrorTxId === t.id ? 'Закрыть' : 'Отмена'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setConfirmDeleteTransactionId(t.id);
+                                    setDeleteError(null);
+                                    setDeleteErrorTxId(null);
+                                  }}
+                                  className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-lg transition cursor-pointer"
+                                  title="Удалить и откатить запись"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -465,7 +618,7 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
 
               {filteredTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={onRemoveTransaction ? 7 : 6} className="px-6 py-12 text-center text-gray-500 font-sans">
+                  <td colSpan={hasActions ? 7 : 6} className="px-6 py-12 text-center text-gray-500 font-sans">
                     {transactions.length === 0 ? (
                       <div className="space-y-1">
                         <p className="font-bold text-gray-700 text-base">Журнал пуст</p>
@@ -481,6 +634,167 @@ export function Journal({ transactions, products, locations, buyers, onRemoveTra
           </table>
         </div>
       </div>
+
+      {/* Edit Transaction Modal */}
+      {editingTransaction && (
+        <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xl max-w-md w-full overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="bg-slate-950 text-white p-5 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold font-sans">Редактирование операции</h3>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold font-mono mt-0.5">
+                  ID: {editingTransaction.id}
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingTransaction(null)}
+                className="text-slate-400 hover:text-white transition cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+              {editError && (
+                <div className="bg-red-50 text-red-800 border border-red-200 p-3.5 rounded-xl text-xs font-semibold flex items-start gap-2 animate-pulse font-sans">
+                  <AlertTriangle className="text-red-500 h-4 w-4 shrink-0 mt-0.5" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {/* Readonly info */}
+              <div className="bg-slate-50 border border-slate-200/60 p-3.5 rounded-xl text-xs space-y-1.5 font-sans text-slate-600">
+                <div>
+                  <span className="font-bold uppercase tracking-wider text-slate-400 block text-[9px]">Тип операции:</span>
+                  <span className="font-semibold text-slate-800 text-sm">
+                    {getTransactionLabel(editingTransaction).text}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-bold uppercase tracking-wider text-slate-400 block text-[9px]">Продукция:</span>
+                  <span className="font-semibold text-slate-800 text-sm">
+                    {getProduct(editingTransaction.productId)?.name || 'Неизвестный продукт'}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-bold uppercase tracking-wider text-slate-400 block text-[9px]">Партия (Batch ID):</span>
+                  <span className="font-mono text-slate-800 font-bold bg-slate-200 px-1 py-0.5 rounded text-[10px]">
+                    {editingTransaction.batchId}
+                  </span>
+                </div>
+              </div>
+
+              {/* Editable Weight */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-sans">Количество (Вес в кг):</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={editForm.quantityKg}
+                    onChange={(e) => setEditForm({ ...editForm, quantityKg: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-sans"
+                  />
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400 font-sans select-none">кг</span>
+                </div>
+              </div>
+
+              {/* Editable Date */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-sans">Дата и время операции:</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={editForm.date}
+                  onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-sans"
+                />
+              </div>
+
+              {/* For OUT transactions, allow editing subtype / destination */}
+              {editingTransaction.type === 'OUT' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-sans">Назначение расхода:</label>
+                    <select
+                      value={editForm.outcomeType}
+                      onChange={(e) => setEditForm({ ...editForm, outcomeType: e.target.value as any })}
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 cursor-pointer font-sans"
+                    >
+                      <option value="sale">🤝 Продажа / Отгрузка</option>
+                      <option value="waste">🗑️ Списание / Утиль</option>
+                      <option value="mpc">🏭 Перемещение в МПЦ</option>
+                    </select>
+                  </div>
+
+                  {editForm.outcomeType === 'sale' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-sans">Покупатель / Контрагент:</label>
+                      <select
+                        value={editForm.buyerId}
+                        onChange={(e) => setEditForm({ ...editForm, buyerId: e.target.value })}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 cursor-pointer font-sans"
+                      >
+                        <option value="">Выберите покупателя...</option>
+                        {buyers.map(b => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {editForm.outcomeType === 'waste' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-sans">Причина списания:</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Например: Истек срок годности, брак упаковки..."
+                        value={editForm.wasteReason}
+                        onChange={(e) => setEditForm({ ...editForm, wasteReason: e.target.value })}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 font-sans"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Notes Comment */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 font-sans">Примечание (Комментарий):</label>
+                <textarea
+                  rows={2}
+                  placeholder="Дополнительная информация к операции..."
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-800 resize-none font-sans"
+                />
+              </div>
+
+              {/* Modal Buttons */}
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm transition shadow-sm cursor-pointer font-sans"
+                >
+                  Сохранить
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTransaction(null)}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-sm transition cursor-pointer font-sans"
+                >
+                  Отмена
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

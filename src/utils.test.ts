@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { autoDetectAttributes, generateProductSku, cn, parseOcrText, getProductNormalizedCategory, getProductPackagingLabel } from './utils';
+import { renderHook, act } from '@testing-library/react';
+import { useAppStore } from './store';
 
 describe('utils.ts tests', () => {
   describe('cn', () => {
@@ -111,6 +113,117 @@ describe('utils.ts tests', () => {
       expect(result.quantityKg).toBe(120.5);
       expect(result.buyerId).toBe('b_grig');
       expect(result.reason).toBe('❌ Отказ в приемке по качеству / Температуре');
+    });
+  });
+
+  describe('store.ts deleteTransaction and updateTransaction tests', () => {
+    it('should delete a transaction and restore balance', async () => {
+      const { result } = renderHook(() => useAppStore());
+      
+      // 1. Создаем приход 100 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p2',
+          locationId: 'loc_main_1',
+          quantityKg: 100,
+          receivedAt: new Date().toISOString(),
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      const tx = result.current.state.transactions[0];
+      const batchId = tx.batchId;
+      expect(tx.quantityKg).toBe(100);
+
+      // 2. Списываем расход 40 кг
+      await act(async () => {
+        await result.current.processOutcome(
+          batchId!,
+          40,
+          new Date().toISOString(),
+          'Test outcome'
+        );
+      });
+
+      // Вес партии должен стать 60 кг
+      let batch = result.current.state.batches.find(b => b.id === batchId);
+      expect(batch?.quantityKg).toBe(60);
+
+      // 3. Удаляем транзакцию расхода 40 кг
+      const outcomeTx = result.current.state.transactions[0];
+      await act(async () => {
+        const deleteRes = await result.current.deleteTransaction(outcomeTx.id);
+        expect(deleteRes.success).toBe(true);
+      });
+
+      // Вес партии должен вернуться к 100 кг
+      batch = result.current.state.batches.find(b => b.id === batchId);
+      expect(batch?.quantityKg).toBe(100);
+    });
+
+    it('should block deletion of IN transaction if batch was spent', async () => {
+      const { result } = renderHook(() => useAppStore());
+
+      // 1. Создаем приход 200 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p3',
+          locationId: 'loc_main_1',
+          quantityKg: 200,
+          receivedAt: new Date().toISOString(),
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      const incomeTx = result.current.state.transactions[0];
+      const batchId = incomeTx.batchId;
+
+      // 2. Списываем 50 кг
+      await act(async () => {
+        await result.current.processOutcome(
+          batchId!,
+          50,
+          new Date().toISOString(),
+          'Test spend'
+        );
+      });
+
+      // 3. Пытаемся удалить приход (должно заблокироваться)
+      await act(async () => {
+        const deleteRes = await result.current.deleteTransaction(incomeTx.id);
+        expect(deleteRes.success).toBe(false);
+        expect(deleteRes.error).toContain('Невозможно удалить приход');
+      });
+    });
+
+    it('should edit transaction weight and adjust batch quantity', async () => {
+      const { result } = renderHook(() => useAppStore());
+
+      // 1. Создаем приход 300 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p4',
+          locationId: 'loc_main_1',
+          quantityKg: 300,
+          receivedAt: new Date().toISOString(),
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      const incomeTx = result.current.state.transactions[0];
+      
+      // 2. Редактируем вес прихода на 350 кг
+      await act(async () => {
+        const updateRes = await result.current.updateTransaction(incomeTx.id, {
+          quantityKg: 350
+        });
+        expect(updateRes.success).toBe(true);
+      });
+
+      // 3. Вес партии должен обновиться до 350 кг
+      const batch = result.current.state.batches.find(b => b.id === incomeTx.batchId);
+      expect(batch?.quantityKg).toBe(350);
+      expect(batch?.initialQuantityKg).toBe(350);
     });
   });
 });
