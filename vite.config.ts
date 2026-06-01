@@ -6,6 +6,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    base: process.env.GITHUB_ACTIONS === 'true' ? '/meatsync/' : '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
