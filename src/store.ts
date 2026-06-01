@@ -810,15 +810,15 @@ export function useAppStore() {
     }
 
     if (isOnline) {
-      supabaseOperations.push(async () => {
-        const { error } = await supabase.from('transactions').delete().eq('id', id);
-        if (error) throw error;
-      });
-    }
-
-    if (isOnline && supabaseOperations.length > 0) {
       try {
-        await Promise.all(supabaseOperations.map(op => op()));
+        // 1. Сначала строго удаляем саму транзакцию из transactions для прохождения внешних ключей в PostgreSQL
+        const { error: txErr } = await supabase.from('transactions').delete().eq('id', id);
+        if (txErr) throw txErr;
+
+        // 2. После этого последовательно выполняем операции над партиями batches
+        for (const op of supabaseOperations) {
+          await op();
+        }
       } catch (err) {
         console.error('Failed to sync transaction deletion with Supabase:', err);
         return { success: false, error: 'Ошибка синхронизации с облаком при удалении.' };
@@ -1099,9 +1099,11 @@ export function useAppStore() {
 
     if (isOnline) {
       try {
-        if (supabaseBatchesUpdates.length > 0) {
-          await Promise.all(supabaseBatchesUpdates.map(op => op()));
+        // Последовательно выполняем все операции обновления/удаления/вставки партий batches
+        for (const op of supabaseBatchesUpdates) {
+          await op();
         }
+        // Обновляем саму транзакцию
         if (supabaseTxUpdate) {
           await supabaseTxUpdate();
         }
