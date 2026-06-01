@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { Product, StorageLocation, Batch, Buyer } from "../types";
 import { addDays, format, differenceInDays } from "date-fns";
 import { getProductNormalizedCategory, getProductPackagingLabel } from "../utils";
+import { SearchableSelect } from "./SearchableSelect";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -304,38 +305,12 @@ function IncomeForm({
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Продукция *
             </label>
-            <select
-              required
-              value={productId}
-              onChange={(e) => handleProductChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 border shadow-sm p-3 bg-gray-50 focus:bg-white transition-colors text-sm"
-            >
-              <option value="">Выберите из номенклатуры...</option>
-              {chilledProducts.length > 0 && (
-                <optgroup label="❄️ ОХЛАЖДЕННАЯ ПРОДУКЦИЯ">
-                  {chilledProducts.map((p) => {
-                    const packLabel = getProductPackagingLabel(p.packagingType);
-                    return (
-                      <option key={p.id} value={p.id}>
-                        {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-              {frozenProducts.length > 0 && (
-                <optgroup label="🧊 ЗАМОРОЖЕННАЯ ПРОДУКЦИЯ">
-                  {frozenProducts.map((p) => {
-                    const packLabel = getProductPackagingLabel(p.packagingType);
-                    return (
-                      <option key={p.id} value={p.id}>
-                        {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              )}
-            </select>
+            <SearchableSelect
+              products={products}
+              selectedProductId={productId}
+              onSelectProduct={handleProductChange}
+              placeholder="Выберите из номенклатуры..."
+            />
           </div>
 
           {/* Suggestion & Warning Banners */}

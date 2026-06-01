@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 import { parseOcrText, getProductNormalizedCategory, getProductPackagingLabel } from '../utils';
+import { SearchableSelect } from './SearchableSelect';
 
 interface Props {
   products: Product[];
@@ -417,38 +418,12 @@ export function Returns({
             {/* Product option */}
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Продукция *</label>
-              <select
-                required
-                className="w-full border-gray-300 border rounded-lg p-2.5 text-sm shadow-sm focus:ring-blue-500 focus:border-blue-500 text-slate-900 bg-white cursor-pointer"
-                value={selectedProductId}
-                onChange={e => setSelectedProductId(e.target.value)}
-              >
-                <option value="">-- Выбрать из номенклатуры --</option>
-                {chilledProducts.length > 0 && (
-                  <optgroup label="❄️ ОХЛАЖДЕННАЯ ПРОДУКЦИЯ">
-                    {chilledProducts.map((p) => {
-                      const packLabel = getProductPackagingLabel(p.packagingType);
-                      return (
-                        <option key={p.id} value={p.id}>
-                          {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
-                        </option>
-                      );
-                    })}
-                  </optgroup>
-                )}
-                {frozenProducts.length > 0 && (
-                  <optgroup label="🧊 ЗАМОРОЖЕННАЯ ПРОДУКЦИЯ">
-                    {frozenProducts.map((p) => {
-                      const packLabel = getProductPackagingLabel(p.packagingType);
-                      return (
-                        <option key={p.id} value={p.id}>
-                          {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
-                        </option>
-                      );
-                    })}
-                  </optgroup>
-                )}
-              </select>
+              <SearchableSelect
+                products={products}
+                selectedProductId={selectedProductId}
+                onSelectProduct={setSelectedProductId}
+                placeholder="-- Выбрать из номенклатуры --"
+              />
             </div>
 
             {/* Weight option */}
