@@ -40,6 +40,7 @@ export function Journal({
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [confirmDeleteTransactionId, setConfirmDeleteTransactionId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // States for Editing Transaction
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -220,7 +221,7 @@ export function Journal({
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTransaction || !onUpdateTransaction) return;
+    if (!editingTransaction || !onUpdateTransaction || isSubmitting) return;
 
     if (editForm.quantityKg <= 0) {
       setEditError('Количество должно быть больше нуля.');
@@ -239,33 +240,49 @@ export function Journal({
 
     const isoDate = new Date(editForm.date).toISOString();
 
-    const res = await onUpdateTransaction(editingTransaction.id, {
-      quantityKg: editForm.quantityKg,
-      date: isoDate,
-      notes: editForm.notes,
-      outcomeType: editForm.outcomeType,
-      buyerId: editForm.buyerId || undefined,
-      wasteReason: editForm.wasteReason || undefined
-    });
+    try {
+      setIsSubmitting(true);
+      setEditError(null);
+      const res = await onUpdateTransaction(editingTransaction.id, {
+        quantityKg: editForm.quantityKg,
+        date: isoDate,
+        notes: editForm.notes,
+        outcomeType: editForm.outcomeType,
+        buyerId: editForm.buyerId || undefined,
+        wasteReason: editForm.wasteReason || undefined
+      });
 
-    if (res.success) {
-      setEditingTransaction(null);
-    } else {
-      setEditError(res.error || 'Произошла ошибка при обновлении.');
+      if (res.success) {
+        setEditingTransaction(null);
+      } else {
+        setEditError(res.error || 'Произошла ошибка при обновлении.');
+      }
+    } catch (err) {
+      setEditError('Ошибка при обновлении транзакции.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDeleteTransaction = async (id: string) => {
-    if (!onDeleteTransaction) return;
+    if (!onDeleteTransaction || isSubmitting) return;
     setDeleteError(null);
     setDeleteErrorTxId(null);
 
-    const res = await onDeleteTransaction(id);
-    if (res.success) {
-      setConfirmDeleteTransactionId(null);
-    } else {
-      setDeleteError(res.error || 'Невозможно удалить операцию.');
+    try {
+      setIsSubmitting(true);
+      const res = await onDeleteTransaction(id);
+      if (res.success) {
+        setConfirmDeleteTransactionId(null);
+      } else {
+        setDeleteError(res.error || 'Невозможно удалить операцию.');
+        setDeleteErrorTxId(id);
+      }
+    } catch (err) {
+      setDeleteError('Ошибка при удалении транзакции.');
       setDeleteErrorTxId(id);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -555,7 +572,8 @@ export function Journal({
                           {onUpdateTransaction && (
                             <button
                               onClick={() => startEdit(t)}
-                              className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-lg transition cursor-pointer"
+                              disabled={isSubmitting}
+                              className="text-blue-600 hover:text-blue-900 bg-blue-50 p-1.5 rounded-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Редактировать запись"
                             >
                               <Pencil size={15} />
@@ -578,9 +596,10 @@ export function Journal({
                                   <div className="flex items-center gap-1">
                                     <button
                                       onClick={() => handleDeleteTransaction(t.id)}
-                                      className="bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer transition-colors shadow-sm font-sans"
+                                      disabled={isSubmitting}
+                                      className="bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer transition-colors shadow-sm font-sans disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      Да, удалить
+                                      {isSubmitting ? 'Удаление...' : 'Да, удалить'}
                                     </button>
                                     <button
                                       onClick={() => {
@@ -588,7 +607,8 @@ export function Journal({
                                         setDeleteError(null);
                                         setDeleteErrorTxId(null);
                                       }}
-                                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer transition-colors font-sans"
+                                      disabled={isSubmitting}
+                                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold px-2.5 py-1 rounded cursor-pointer transition-colors font-sans disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                       {deleteError && deleteErrorTxId === t.id ? 'Закрыть' : 'Отмена'}
                                     </button>
@@ -601,7 +621,8 @@ export function Journal({
                                     setDeleteError(null);
                                     setDeleteErrorTxId(null);
                                   }}
-                                  className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-lg transition cursor-pointer"
+                                  disabled={isSubmitting}
+                                  className="text-red-600 hover:text-red-900 bg-red-50 p-1.5 rounded-lg transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                   title="Удалить и откатить запись"
                                 >
                                   <Trash2 size={15} />
@@ -779,14 +800,16 @@ export function Journal({
               <div className="flex items-center gap-3 pt-2">
                 <button
                   type="submit"
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm transition shadow-sm cursor-pointer font-sans"
+                  disabled={isSubmitting}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm transition shadow-sm cursor-pointer font-sans disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Сохранить
+                  {isSubmitting ? 'Сохранение...' : 'Сохранить'}
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => setEditingTransaction(null)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-sm transition cursor-pointer font-sans"
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-sm transition cursor-pointer font-sans disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Отмена
                 </button>
