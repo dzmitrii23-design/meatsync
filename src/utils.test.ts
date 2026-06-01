@@ -1,10 +1,40 @@
 import { describe, it, expect } from 'vitest';
-import { autoDetectAttributes, generateProductSku, cn, parseOcrText } from './utils';
+import { autoDetectAttributes, generateProductSku, cn, parseOcrText, getProductNormalizedCategory, getProductPackagingLabel } from './utils';
 
 describe('utils.ts tests', () => {
   describe('cn', () => {
     it('should merge tailwind classes properly', () => {
       expect(cn('px-2 py-1', 'px-4')).toBe('py-1 px-4');
+    });
+  });
+
+  describe('getProductNormalizedCategory', () => {
+    it('should respect explicit category if set to Охлажденное or Замороженное', () => {
+      expect(getProductNormalizedCategory({ name: 'Мясо', category: 'Охлажденное' })).toBe('Охлажденное');
+      expect(getProductNormalizedCategory({ name: 'Мясо', category: 'Замороженное' })).toBe('Замороженное');
+    });
+
+    it('should auto-detect category by name if raw or missing', () => {
+      expect(getProductNormalizedCategory({ name: 'Шея свиная (ОХЛ)', category: 'Свинина' })).toBe('Охлажденное');
+      expect(getProductNormalizedCategory({ name: 'Говядина в полутушах', category: '' })).toBe('Охлажденное');
+      expect(getProductNormalizedCategory({ name: 'Свиной окорок без кости', category: 'Свинина' })).toBe('Замороженное');
+    });
+  });
+
+  describe('getProductPackagingLabel', () => {
+    it('should format labels with corresponding emojis', () => {
+      expect(getProductPackagingLabel('Полутуши')).toBe('🚚 Полутуши');
+      expect(getProductPackagingLabel('Блочка')).toBe('📦 Блочка');
+      expect(getProductPackagingLabel('Отруба')).toBe('🥩 Отруба');
+      expect(getProductPackagingLabel('Лотки')).toBe('📥 Лотки');
+      expect(getProductPackagingLabel('Вакуум')).toBe('🛡️ Вакуум');
+      expect(getProductPackagingLabel('Мелкая фасовка')).toBe('🛍️ Мелкая фасовка');
+    });
+
+    it('should handle undefined and unknown values', () => {
+      expect(getProductPackagingLabel('')).toBe('');
+      expect(getProductPackagingLabel(undefined)).toBe('');
+      expect(getProductPackagingLabel('Коробка')).toBe('📦 Коробка');
     });
   });
 

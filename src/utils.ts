@@ -9,6 +9,52 @@ export function generateId() {
   return crypto.randomUUID();
 }
 
+/**
+ * Функция нормализации категории продукта.
+ * Определяет, является ли продукт охлажденным ("Охлажденное") или замороженным ("Замороженное").
+ * Если категория сырая или не задана, определяет ее по названию продукта.
+ */
+export function getProductNormalizedCategory(p: { name: string; category?: string }): "Охлажденное" | "Замороженное" {
+  const cat = (p.category || "").trim();
+  if (cat === "Охлажденное") return "Охлажденное";
+  if (cat === "Замороженное") return "Замороженное";
+
+  // Если категория сырая или не задана, определяем по названию
+  const pName = (p.name || "").toLowerCase();
+  if (pName.includes("охл") || pName.includes("свеж") || pName.includes("полутуш")) {
+    return "Охлажденное";
+  }
+  return "Замороженное";
+}
+
+/**
+ * Возвращает красивый ярлык с эмодзи для типа фасовки (упаковки).
+ */
+export function getProductPackagingLabel(packagingType?: string): string {
+  const pack = (packagingType || "").trim().toLowerCase();
+  if (!pack) return "";
+
+  if (pack.includes("полутуш") || pack.includes("туша") || pack.includes("четверт")) {
+    return "🚚 Полутуши";
+  }
+  if (pack.includes("блоч") || pack.includes("блок")) {
+    return "📦 Блочка";
+  }
+  if (pack.includes("отруб") || pack.includes("кусок") || pack.includes("крупн")) {
+    return "🥩 Отруба";
+  }
+  if (pack.includes("лот")) {
+    return "📥 Лотки";
+  }
+  if (pack.includes("вакуум") || pack.includes("в/у")) {
+    return "🛡️ Вакуум";
+  }
+  if (pack.includes("мелк") || pack.includes("фасовк") || pack.includes("пакет")) {
+    return "🛍️ Мелкая фасовка";
+  }
+  return `📦 ${packagingType}`;
+}
+
 export function autoDetectAttributes(p: { name: string; category: string }): { rawMaterial: string; packagingType: string } {
   let rawMaterial = 'Иное';
   const cat = (p.category || '').toLowerCase();

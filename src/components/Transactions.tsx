@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Product, StorageLocation, Batch, Buyer } from "../types";
 import { addDays, format, differenceInDays } from "date-fns";
+import { getProductNormalizedCategory, getProductPackagingLabel } from "../utils";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -182,13 +183,19 @@ function IncomeForm({
   const [docReceivedAt, setDocReceivedAt] = useState(
     format(new Date(), "yyyy-MM-dd"),
   );
-
-  const categories = Array.from(
-    new Set(products.map((p) => p.category || "Замороженное")),
+  const chilledProducts = useMemo(() =>
+    products.filter((p) => getProductNormalizedCategory(p) === "Охлажденное"),
+    [products],
+  );
+  const frozenProducts = useMemo(() =>
+    products.filter((p) => getProductNormalizedCategory(p) === "Замороженное"),
+    [products],
   );
 
   const selectedProduct = products.find((p) => p.id === productId);
-  const isChilled = selectedProduct?.category === "Охлажденное";
+  const isChilled = selectedProduct
+    ? getProductNormalizedCategory(selectedProduct) === "Охлажденное"
+    : false;
   const selectedLocation = locations.find((l) => l.id === locationId);
   const isLocationShock = selectedLocation?.type === "shock_freezer";
   const showShockWarning = isChilled && isLocationShock;
@@ -207,7 +214,7 @@ function IncomeForm({
       }
 
       // Smart routing advice
-      if (prod.category === "Охлажденное") {
+      if (getProductNormalizedCategory(prod) === "Охлажденное") {
         const chilledLoc = locations.find((l) => l.type === "chilled_fridge");
         if (chilledLoc) {
           setLocationId(chilledLoc.id);
@@ -304,24 +311,30 @@ function IncomeForm({
               className="w-full rounded-md border-gray-300 border shadow-sm p-3 bg-gray-50 focus:bg-white transition-colors text-sm"
             >
               <option value="">Выберите из номенклатуры...</option>
-              {categories.map((cat) => (
-                <optgroup
-                  key={cat}
-                  label={
-                    cat === "Охлажденное"
-                      ? "❄️ ОХЛАЖДЕННАЯ ПРОДУКЦИЯ"
-                      : "🧊 ЗАМОРОЖЕННАЯ ПРОДУКЦИЯ"
-                  }
-                >
-                  {products
-                    .filter((p) => p.category === cat)
-                    .map((p) => (
+              {chilledProducts.length > 0 && (
+                <optgroup label="❄️ ОХЛАЖДЕННАЯ ПРОДУКЦИЯ">
+                  {chilledProducts.map((p) => {
+                    const packLabel = getProductPackagingLabel(p.packagingType);
+                    return (
                       <option key={p.id} value={p.id}>
-                        {p.name} {p.packagingType ? `[${p.packagingType}]` : ""} ({p.sku})
+                        {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
                       </option>
-                    ))}
+                    );
+                  })}
                 </optgroup>
-              ))}
+              )}
+              {frozenProducts.length > 0 && (
+                <optgroup label="🧊 ЗАМОРОЖЕННАЯ ПРОДУКЦИЯ">
+                  {frozenProducts.map((p) => {
+                    const packLabel = getProductPackagingLabel(p.packagingType);
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              )}
             </select>
           </div>
 

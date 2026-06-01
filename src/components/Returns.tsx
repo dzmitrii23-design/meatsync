@@ -19,7 +19,7 @@ import {
   Info
 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
-import { parseOcrText } from '../utils';
+import { parseOcrText, getProductNormalizedCategory, getProductPackagingLabel } from '../utils';
 
 interface Props {
   products: Product[];
@@ -98,6 +98,15 @@ export function Returns({
 
   // Пакетный ввод: draft-список позиций к проведению
   const [drafts, setDrafts] = useState<ReturnDraftItem[]>([]);
+
+  const chilledProducts = useMemo(() =>
+    products.filter((p) => getProductNormalizedCategory(p) === "Охлажденное"),
+    [products],
+  );
+  const frozenProducts = useMemo(() =>
+    products.filter((p) => getProductNormalizedCategory(p) === "Замороженное"),
+    [products],
+  );
 
   const handleOcrScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -415,11 +424,30 @@ export function Returns({
                 onChange={e => setSelectedProductId(e.target.value)}
               >
                 <option value="">-- Выбрать из номенклатуры --</option>
-                {products.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.sku})
-                  </option>
-                ))}
+                {chilledProducts.length > 0 && (
+                  <optgroup label="❄️ ОХЛАЖДЕННАЯ ПРОДУКЦИЯ">
+                    {chilledProducts.map((p) => {
+                      const packLabel = getProductPackagingLabel(p.packagingType);
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                )}
+                {frozenProducts.length > 0 && (
+                  <optgroup label="🧊 ЗАМОРОЖЕННАЯ ПРОДУКЦИЯ">
+                    {frozenProducts.map((p) => {
+                      const packLabel = getProductPackagingLabel(p.packagingType);
+                      return (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {packLabel ? `[${packLabel}]` : ""} ({p.sku})
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                )}
               </select>
             </div>
 
