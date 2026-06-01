@@ -662,6 +662,8 @@ export function useAppStore() {
             error: `Невозможно удалить приход: с этой партии уже списано ${batch.initialQuantityKg - batch.quantityKg} кг. Сначала удалите соответствующие расходы.`
           };
         }
+      }
+      if (tx.batchId) {
         nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
         if (isOnline) {
           supabaseOperations.push(async () => {
@@ -799,6 +801,8 @@ export function useAppStore() {
             error: `Невозможно отменить возврат: возвращенная продукция уже частично списана (${batch.initialQuantityKg - batch.quantityKg} кг). Сначала удалите расходы.`
           };
         }
+      }
+      if (tx.batchId) {
         nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
         if (isOnline) {
           supabaseOperations.push(async () => {
@@ -810,10 +814,12 @@ export function useAppStore() {
     }
 
     if (isOnline) {
+      let txDeleted = false;
       try {
         // 1. Сначала строго удаляем саму транзакцию из transactions для прохождения внешних ключей в PostgreSQL
         const { error: txErr } = await supabase.from('transactions').delete().eq('id', id);
         if (txErr) throw txErr;
+        txDeleted = true;
 
         // 2. После этого последовательно выполняем операции над партиями batches
         for (const op of supabaseOperations) {
@@ -821,6 +827,14 @@ export function useAppStore() {
         }
       } catch (err) {
         console.error('Failed to sync transaction deletion with Supabase:', err);
+        // Восстановление удаленной транзакции для консистентности базы данных
+        if (txDeleted) {
+          try {
+            await supabase.from('transactions').insert(tx);
+          } catch (restoreErr) {
+            console.error('Failed to restore transaction after batch update failure:', restoreErr);
+          }
+        }
         return { success: false, error: 'Ошибка синхронизации с облаком при удалении.' };
       }
     }
