@@ -225,5 +225,40 @@ describe('utils.ts tests', () => {
       expect(batch?.quantityKg).toBe(350);
       expect(batch?.initialQuantityKg).toBe(350);
     });
+
+    it('should block deletion of IN transaction if it has dependent transactions (Approach 1 Cascade Block)', async () => {
+      const { result } = renderHook(() => useAppStore());
+
+      // 1. Создаем приход 500 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p2',
+          locationId: 'loc_main_1',
+          quantityKg: 500,
+          receivedAt: new Date().toISOString(),
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      const incomeTx = result.current.state.transactions[0];
+      const batchId = incomeTx.batchId;
+
+      // 2. Перемещаем 200 кг
+      await act(async () => {
+        await result.current.moveBatch(
+          batchId!,
+          'loc_reefer_1',
+          200,
+          new Date().toISOString()
+        );
+      });
+
+      // 3. Пытаемся удалить транзакцию прихода (должно заблокироваться из-за зависимой MOVE-транзакции)
+      await act(async () => {
+        const deleteRes = await result.current.deleteTransaction(incomeTx.id);
+        expect(deleteRes.success).toBe(false);
+        expect(deleteRes.error).toContain('по этой партии в системе зарегистрированы движения');
+      });
+    });
   });
 });

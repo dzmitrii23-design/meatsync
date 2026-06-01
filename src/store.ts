@@ -654,16 +654,28 @@ export function useAppStore() {
     let supabaseOperations: (() => Promise<void>)[] = [];
 
     if (tx.type === 'IN') {
-      const batch = state.batches.find(b => b.id === tx.batchId);
-      if (batch) {
-        if (batch.quantityKg < batch.initialQuantityKg) {
+      if (tx.batchId) {
+        const hasDependentTransactions = state.transactions.some(t => 
+          t.id !== id && 
+          t.batchId === tx.batchId
+        );
+        if (hasDependentTransactions) {
           return {
             success: false,
-            error: `Невозможно удалить приход: с этой партии уже списано ${batch.initialQuantityKg - batch.quantityKg} кг. Сначала удалите соответствующие расходы.`
+            error: 'Невозможно удалить приход: по этой партии в системе зарегистрированы движения (продажи или перемещения). Сначала удалите связанные расходы/перемещения в Журнале.'
           };
         }
-      }
-      if (tx.batchId) {
+
+        const batch = state.batches.find(b => b.id === tx.batchId);
+        if (batch) {
+          if (batch.quantityKg < batch.initialQuantityKg) {
+            return {
+              success: false,
+              error: `Невозможно удалить приход: с этой партии уже списано ${batch.initialQuantityKg - batch.quantityKg} кг. Сначала удалите соответствующие расходы.`
+            };
+          }
+        }
+
         nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
         if (isOnline) {
           supabaseOperations.push(async () => {
@@ -793,16 +805,28 @@ export function useAppStore() {
         }
       }
     } else if (tx.type === 'RETURN') {
-      const batch = state.batches.find(b => b.id === tx.batchId);
-      if (batch) {
-        if (batch.quantityKg < batch.initialQuantityKg) {
+      if (tx.batchId) {
+        const hasDependentTransactions = state.transactions.some(t => 
+          t.id !== id && 
+          t.batchId === tx.batchId
+        );
+        if (hasDependentTransactions) {
           return {
             success: false,
-            error: `Невозможно отменить возврат: возвращенная продукция уже частично списана (${batch.initialQuantityKg - batch.quantityKg} кг). Сначала удалите расходы.`
+            error: 'Невозможно отменить возврат: по этой партии в системе зарегистрированы движения (продажи или перемещения). Сначала удалите связанные расходы/перемещения в Журнале.'
           };
         }
-      }
-      if (tx.batchId) {
+
+        const batch = state.batches.find(b => b.id === tx.batchId);
+        if (batch) {
+          if (batch.quantityKg < batch.initialQuantityKg) {
+            return {
+              success: false,
+              error: `Невозможно отменить возврат: возвращенная продукция уже частично списана (${batch.initialQuantityKg - batch.quantityKg} кг). Сначала удалите расходы.`
+            };
+          }
+        }
+
         nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
         if (isOnline) {
           supabaseOperations.push(async () => {
