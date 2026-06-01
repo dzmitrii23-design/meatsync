@@ -132,17 +132,19 @@ export default function App() {
               </button>
             )}
 
-            <button
-              onClick={() => setActiveTab('journal')}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                activeTab === 'journal'
-                  ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                  : 'hover:bg-slate-900 hover:text-white font-medium text-slate-400'
-              }`}
-            >
-              <FileClock size={15} />
-              <span>Журнал</span>
-            </button>
+            {role === 'ADMIN' && (
+              <button
+                onClick={() => setActiveTab('journal')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                  activeTab === 'journal'
+                    ? 'bg-blue-600 text-white shadow-sm font-semibold'
+                    : 'hover:bg-slate-900 hover:text-white font-medium text-slate-400'
+                }`}
+              >
+                <FileClock size={15} />
+                <span>Журнал</span>
+              </button>
+            )}
 
             {role === 'ADMIN' && (
               <button
