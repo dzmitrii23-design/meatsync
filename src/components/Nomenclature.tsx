@@ -244,7 +244,7 @@ export function Nomenclature({
           const lower = header.toLowerCase();
           if (lower.includes('артикул') || lower.includes('sku') || lower.includes('код') || lower.includes('ид')) {
             initialMap.sku = index;
-          } else if (lower.includes('наименование') || lower.includes('название') || lower.includes('товар') || lower.includes('номенклатура') || lower.includes('продукт')) {
+          } else if ((lower.includes('наименование') || lower.includes('название') || lower.includes('товар') || lower.includes('номенклатура') || lower.includes('продукт')) && !lower.includes('тип') && !lower.includes('вид')) {
             initialMap.name = index;
           } else if (lower.includes('категория') || lower.includes('состояние') || lower.includes('вид')) {
             initialMap.category = index;
@@ -263,13 +263,9 @@ export function Nomenclature({
 
         // Fallbacks if not matched
         if (initialMap.sku === -1 && rawHeaders.length > 0) initialMap.sku = 0;
-        if (initialMap.name === -1 && rawHeaders.length > 1) initialMap.name = 1;
-        if (initialMap.category === -1 && rawHeaders.length > 2) initialMap.category = 2;
-        if (initialMap.defaultShelfLifeDays === -1 && rawHeaders.length > 3) initialMap.defaultShelfLifeDays = 3;
-        if (initialMap.notifyBeforeDays === -1 && rawHeaders.length > 4) initialMap.notifyBeforeDays = 4;
-        if (initialMap.rawMaterial === -1 && rawHeaders.length > 5) initialMap.rawMaterial = 5;
-        if (initialMap.packagingType === -1 && rawHeaders.length > 6) initialMap.packagingType = 6;
-        if (initialMap.unit === -1 && rawHeaders.length > 7) initialMap.unit = 7;
+        if (initialMap.name === -1 && rawHeaders.length > 1) {
+          initialMap.name = initialMap.sku === 1 ? 0 : 1;
+        }
 
         setColumnMap(initialMap);
         setImportStep('mapping');
