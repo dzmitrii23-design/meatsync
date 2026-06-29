@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { Product, Buyer } from '../types';
 import { Plus, Trash2, Edit2, Check, X, Upload, FileSpreadsheet, Eye, AlertCircle, Phone, Search } from 'lucide-react';
+import { autoDetectAttributes } from '../utils';
 import * as XLSX from 'xlsx';
 
 const getMaterialBadge = (material?: string) => {
@@ -278,7 +279,7 @@ export function Nomenclature({
 
   const processMappingAndPreview = () => {
     const results: Omit<Product, 'id'>[] = [];
-    let currentCategory = 'Общие';
+    let currentGroupName = ''; // Имя текущей папки/группы 1С
     
     // Сначала проверяем, есть ли в файле иерархическая структура групп
     let hasHierarchy = false;
@@ -308,19 +309,41 @@ export function Nomenclature({
                            (columnMap.packagingType !== -1 && String(row[columnMap.packagingType] || '').trim());
       
       if (!sku && name && !hasOtherData) {
-        currentCategory = name;
+        currentGroupName = name;
         return; // Это категория (заголовок папки), пропускаем добавление товара
       }
       
-      // Если есть иерархия, приоритет отдаем текущей группе 1С. 
-      // Иначе берем сопоставленную колонку категории (если она сопоставлена и не пуста), либо 'Общие'.
-      const category = hasHierarchy 
-        ? currentCategory 
-        : (columnMap.category !== -1 && String(row[columnMap.category] || '').trim()
-            ? String(row[columnMap.category] || '').trim()
-            : 'Общие');
+      // Определяем термическое состояние (Охлажденное / Замороженное)
+      // на основе ключевых слов в названии товара и имени группы 1С
+      let category = 'Замороженное'; // По умолчанию для мясной продукции
+      const combinedText = (name + ' ' + currentGroupName).toLowerCase();
+      if (combinedText.includes('охл') || combinedText.includes('парн') || combinedText.includes('парное')) {
+        category = 'Охлажденное';
+      }
+      // Если нет иерархии — пробуем сопоставленную колонку
+      if (!hasHierarchy && columnMap.category !== -1) {
+        const catVal = String(row[columnMap.category] || '').trim();
+        if (catVal) {
+          const catLower = catVal.toLowerCase();
+          if (catLower.includes('охл') || catLower.includes('парн')) {
+            category = 'Охлажденное';
+          } else if (catLower.includes('замор') || catLower.includes('зам')) {
+            category = 'Замороженное';
+          }
+        }
+      }
+      
+      // Автоопределение rawMaterial из имени группы 1С + названия товара
+      let detectedRawMaterial = rawMaterial || undefined;
+      let detectedPackagingType = packagingType || undefined;
+      if (hasHierarchy && (!detectedRawMaterial || !detectedPackagingType)) {
+        const autoSource = { name: name, category: currentGroupName };
+        const auto = autoDetectAttributes(autoSource);
+        if (!detectedRawMaterial) detectedRawMaterial = auto.rawMaterial;
+        if (!detectedPackagingType) detectedPackagingType = auto.packagingType;
+      }
 
-      let shelfLife = 180;
+      let shelfLife = category === 'Охлажденное' ? 15 : 180;
       if (columnMap.defaultShelfLifeDays !== -1) {
         const val = parseInt(row[columnMap.defaultShelfLifeDays], 10);
         if (!isNaN(val) && val > 0) {
@@ -328,7 +351,7 @@ export function Nomenclature({
         }
       }
 
-      let notifyDays = 14;
+      let notifyDays = category === 'Охлажденное' ? 5 : 14;
       if (columnMap.notifyBeforeDays !== -1 && columnMap.notifyBeforeDays !== undefined) {
         const val = parseInt(row[columnMap.notifyBeforeDays], 10);
         if (!isNaN(val) && val >= 0) {
@@ -343,8 +366,8 @@ export function Nomenclature({
           category,
           defaultShelfLifeDays: shelfLife,
           notifyBeforeDays: notifyDays,
-          rawMaterial: rawMaterial || undefined,
-          packagingType: packagingType || undefined,
+          rawMaterial: detectedRawMaterial,
+          packagingType: detectedPackagingType,
           unit: unit || undefined,
         });
       }
@@ -940,17 +963,17 @@ export function Nomenclature({
                   <>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-bold text-slate-800 bg-slate-50/30">
                       {product.sku}
-                      {product.unit && (
-                        <span className="text-[10px] text-gray-500 font-sans font-normal bg-slate-100 border border-slate-200 px-1 py-0.5 rounded ml-1.5">
-                          {product.unit}
-                        </span>
-                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 font-sans font-medium">{product.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col gap-1 items-start">
                         {getMaterialBadge(product.rawMaterial)}
                         {getPackagingBadge(product.packagingType)}
+                        {product.unit && (
+                          <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                            📏 {product.unit}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-sans">
