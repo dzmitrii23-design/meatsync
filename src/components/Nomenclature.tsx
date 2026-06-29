@@ -93,6 +93,7 @@ export function Nomenclature({
     notifyBeforeDays: -1,
     rawMaterial: -1,
     packagingType: -1,
+    unit: -1,
   });
   const [parsedProducts, setParsedProducts] = useState<Omit<Product, 'id'>[]>([]);
   const [duplicateAction, setDuplicateAction] = useState<'overwrite' | 'preserve'>('preserve');
@@ -108,6 +109,7 @@ export function Nomenclature({
     notifyBeforeDays: 5,
     rawMaterial: 'Свинина',
     packagingType: 'Блочка',
+    unit: 'кг',
   });
 
   const [autoSku, setAutoSku] = useState(true);
@@ -146,7 +148,8 @@ export function Nomenclature({
       defaultShelfLifeDays: 15, 
       notifyBeforeDays: 5,
       rawMaterial: 'Свинина',
-      packagingType: 'Блочка'
+      packagingType: 'Блочка',
+      unit: 'кг'
     });
     setAutoSku(true);
   };
@@ -161,6 +164,7 @@ export function Nomenclature({
       notifyBeforeDays: product.notifyBeforeDays ?? 14,
       rawMaterial: product.rawMaterial ?? 'Иное',
       packagingType: product.packagingType ?? 'Иное',
+      unit: product.unit ?? 'кг',
     });
   };
 
@@ -190,10 +194,28 @@ export function Nomenclature({
           throw new Error('Файл пустой или некорректный');
         }
 
-        // Find headers (usually the first row with elements)
-        let headerIndex = 0;
-        while (headerIndex < rows.length && rows[headerIndex].filter(Boolean).length === 0) {
-          headerIndex++;
+        // Находим строку заголовков (содержащую "Код" или "Наименование" или аналогичные)
+        let headerIndex = -1;
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
+          if (row && row.some(cell => {
+            const str = String(cell || '').toLowerCase();
+            return str.includes('код') || str.includes('артикул') || str.includes('sku');
+          }) && row.some(cell => {
+            const str = String(cell || '').toLowerCase();
+            return str.includes('наименование') || str.includes('название');
+          })) {
+            headerIndex = i;
+            break;
+          }
+        }
+
+        // Если не нашли специфическую строку, откатываемся к первому непустому ряду
+        if (headerIndex === -1) {
+          headerIndex = 0;
+          while (headerIndex < rows.length && rows[headerIndex].filter(Boolean).length === 0) {
+            headerIndex++;
+          }
         }
 
         if (headerIndex >= rows.length) {
@@ -214,7 +236,8 @@ export function Nomenclature({
           defaultShelfLifeDays: -1, 
           notifyBeforeDays: -1,
           rawMaterial: -1,
-          packagingType: -1
+          packagingType: -1,
+          unit: -1
         };
         
         rawHeaders.forEach((header, index) => {
@@ -233,6 +256,8 @@ export function Nomenclature({
             initialMap.rawMaterial = index;
           } else if (lower.includes('упаковк') || lower.includes('фасовк') || lower.includes('pack') || lower.includes('формат')) {
             initialMap.packagingType = index;
+          } else if (lower.includes('ед') || lower.includes('изм') || lower.includes('unit') || lower.includes('мерен')) {
+            initialMap.unit = index;
           }
         });
 
@@ -244,6 +269,7 @@ export function Nomenclature({
         if (initialMap.notifyBeforeDays === -1 && rawHeaders.length > 4) initialMap.notifyBeforeDays = 4;
         if (initialMap.rawMaterial === -1 && rawHeaders.length > 5) initialMap.rawMaterial = 5;
         if (initialMap.packagingType === -1 && rawHeaders.length > 6) initialMap.packagingType = 6;
+        if (initialMap.unit === -1 && rawHeaders.length > 7) initialMap.unit = 7;
 
         setColumnMap(initialMap);
         setImportStep('mapping');
@@ -256,14 +282,48 @@ export function Nomenclature({
 
   const processMappingAndPreview = () => {
     const results: Omit<Product, 'id'>[] = [];
+    let currentCategory = 'Общие';
     
+    // Сначала проверяем, есть ли в файле иерархическая структура групп
+    let hasHierarchy = false;
     excelRows.forEach((row) => {
       const sku = columnMap.sku !== -1 ? String(row[columnMap.sku] || '').trim() : '';
       const name = columnMap.name !== -1 ? String(row[columnMap.name] || '').trim() : '';
-      const category = columnMap.category !== -1 ? String(row[columnMap.category] || '').trim() : 'Общие';
+      
+      const hasOtherData = (columnMap.defaultShelfLifeDays !== -1 && String(row[columnMap.defaultShelfLifeDays] || '').trim()) || 
+                           (columnMap.rawMaterial !== -1 && String(row[columnMap.rawMaterial] || '').trim()) ||
+                           (columnMap.packagingType !== -1 && String(row[columnMap.packagingType] || '').trim());
+      
+      if (!sku && name && !hasOtherData) {
+        hasHierarchy = true;
+      }
+    });
+
+    excelRows.forEach((row) => {
+      const sku = columnMap.sku !== -1 ? String(row[columnMap.sku] || '').trim() : '';
+      const name = columnMap.name !== -1 ? String(row[columnMap.name] || '').trim() : '';
+      const unit = columnMap.unit !== -1 && columnMap.unit !== undefined ? String(row[columnMap.unit] || '').trim() : '';
       const rawMaterial = columnMap.rawMaterial !== -1 ? String(row[columnMap.rawMaterial] || '').trim() : '';
       const packagingType = columnMap.packagingType !== -1 ? String(row[columnMap.packagingType] || '').trim() : '';
       
+      // Проверка на строку группы 1С: кода нет, наименование есть, остальные сопоставленные ячейки пусты
+      const hasOtherData = (columnMap.defaultShelfLifeDays !== -1 && String(row[columnMap.defaultShelfLifeDays] || '').trim()) || 
+                           (columnMap.rawMaterial !== -1 && String(row[columnMap.rawMaterial] || '').trim()) ||
+                           (columnMap.packagingType !== -1 && String(row[columnMap.packagingType] || '').trim());
+      
+      if (!sku && name && !hasOtherData) {
+        currentCategory = name;
+        return; // Это категория (заголовок папки), пропускаем добавление товара
+      }
+      
+      // Если есть иерархия, приоритет отдаем текущей группе 1С. 
+      // Иначе берем сопоставленную колонку категории (если она сопоставлена и не пуста), либо 'Общие'.
+      const category = hasHierarchy 
+        ? currentCategory 
+        : (columnMap.category !== -1 && String(row[columnMap.category] || '').trim()
+            ? String(row[columnMap.category] || '').trim()
+            : 'Общие');
+
       let shelfLife = 180;
       if (columnMap.defaultShelfLifeDays !== -1) {
         const val = parseInt(row[columnMap.defaultShelfLifeDays], 10);
@@ -289,6 +349,7 @@ export function Nomenclature({
           notifyBeforeDays: notifyDays,
           rawMaterial: rawMaterial || undefined,
           packagingType: packagingType || undefined,
+          unit: unit || undefined,
         });
       }
     });
@@ -530,6 +591,18 @@ export function Nomenclature({
                         {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
                       </select>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-4 items-center">
+                      <span className="font-semibold text-sm text-gray-700">Единица измерения (ед. изм.)</span>
+                      <select 
+                        value={columnMap.unit} 
+                        onChange={e => setColumnMap({ ...columnMap, unit: Number(e.target.value) })}
+                        className="rounded-md border border-gray-300 p-2 shadow-sm text-sm bg-white"
+                      >
+                        <option value={-1}>-- По умолчанию (кг) --</option>
+                        {headers.map((h, i) => <option key={i} value={i}>{h.replace(/\n/g, ' ')}</option>)}
+                      </select>
+                    </div>
                   </div>
 
                   <div className="flex justify-between items-center pt-2">
@@ -578,6 +651,7 @@ export function Nomenclature({
                           <th className="px-4 py-2 text-left">Категория</th>
                           <th className="px-4 py-2 text-left">Сырье</th>
                           <th className="px-4 py-2 text-left">Упаковка</th>
+                          <th className="px-4 py-2 text-left">Ед. изм.</th>
                           <th className="px-4 py-2 text-left">Срок годности</th>
                           <th className="px-4 py-2 text-left">Оповещение</th>
                         </tr>
@@ -590,6 +664,7 @@ export function Nomenclature({
                             <td className="px-4 py-2 text-gray-500">{p.category}</td>
                             <td className="px-4 py-2 text-gray-500">{p.rawMaterial || <span className="text-gray-400 italic text-xs">Автоопределение</span>}</td>
                             <td className="px-4 py-2 text-gray-500">{p.packagingType || <span className="text-gray-400 italic text-xs">Автоопределение</span>}</td>
+                            <td className="px-4 py-2 text-gray-500 font-mono">{p.unit || 'кг'}</td>
                             <td className="px-4 py-2 text-gray-500">{p.defaultShelfLifeDays} дн.</td>
                             <td className="px-4 py-2 text-gray-500">За {p.notifyBeforeDays ?? 14} дн.</td>
                           </tr>
@@ -660,7 +735,7 @@ export function Nomenclature({
           </div>
 
           {/* Row 2 */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-md border">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-4 rounded-md border">
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="block text-sm font-medium text-gray-700">Артикул / SKU</label>
@@ -695,19 +770,31 @@ export function Nomenclature({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Тип фасовки / формат (в SKU)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Тип фасовки (в SKU)</label>
               <select 
                 value={formData.packagingType} 
                 onChange={e => setFormData({ ...formData, packagingType: e.target.value })} 
                 className="w-full rounded-md border border-gray-300 shadow-sm p-2 text-sm focus:ring-blue-500 focus:border-blue-500 cursor-pointer"
               >
                 <option value="Блочка">Блочное сырье / Блочка (код BL)</option>
-                <option value="Мелкая фасовка">Мелкая фасовка / пакеты (код MF)</option>
+                <option value="Мелкая фасовка">Мелкая фасовка (код MF)</option>
                 <option value="Отруба">Крупный кусок / Отруба (код OT)</option>
-                <option value="Полутуши">Полутуши / Четвертины / Туши (код TS)</option>
+                <option value="Полутуши">Полутуши / Туши (код TS)</option>
                 <option value="Вакуум">Вакуумная упаковка (код VK)</option>
-                <option value="Лотки">Пластиковый лоток / Лотки (код LT)</option>
+                <option value="Лотки">Пластиковый лоток (код LT)</option>
                 <option value="Иное">Другое / Навалом (код ZZ)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Ед. измерения</label>
+              <select 
+                value={formData.unit} 
+                onChange={e => setFormData({ ...formData, unit: e.target.value })} 
+                className="w-full rounded-md border border-gray-300 shadow-sm p-2 text-sm focus:ring-blue-500 focus:border-blue-500 cursor-pointer bg-white"
+              >
+                <option value="кг">кг (Килограмм)</option>
+                <option value="шт">шт (Штука)</option>
+                <option value="м">м (Метр)</option>
               </select>
             </div>
           </div>
@@ -855,7 +942,14 @@ export function Nomenclature({
                   </>
                 ) : (
                   <>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-bold text-slate-800 bg-slate-50/30">{product.sku}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-bold text-slate-800 bg-slate-50/30">
+                      {product.sku}
+                      {product.unit && (
+                        <span className="text-[10px] text-gray-500 font-sans font-normal bg-slate-100 border border-slate-200 px-1 py-0.5 rounded ml-1.5">
+                          {product.unit}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-900 font-sans font-medium">{product.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col gap-1 items-start">

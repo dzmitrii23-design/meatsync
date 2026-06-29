@@ -240,7 +240,8 @@ export function useAppStore() {
 
     if (isOnline) {
       try {
-        const { error } = await supabase.from('products').insert(newProduct);
+        const { unit, ...toSend } = newProduct;
+        const { error } = await supabase.from('products').insert(toSend);
         if (error) throw error;
       } catch (err) {
         console.error('Failed to add product to Supabase:', err);
@@ -275,7 +276,8 @@ export function useAppStore() {
 
     if (isOnline && updatedProduct) {
       try {
-        const { error } = await supabase.from('products').update(updatedProduct).eq('id', id);
+        const { unit, ...toSend } = updatedProduct;
+        const { error } = await supabase.from('products').update(toSend).eq('id', id);
         if (error) throw error;
       } catch (err) {
         console.error('Failed to update product in Supabase:', err);
@@ -326,6 +328,7 @@ export function useAppStore() {
               notifyBeforeDays: newProd.notifyBeforeDays,
               rawMaterial,
               packagingType,
+              unit: newProd.unit,
             };
           }
         } else {
@@ -348,7 +351,8 @@ export function useAppStore() {
 
     if (isOnline && updatedProductsList.length) {
       try {
-        const { error } = await supabase.from('products').upsert(updatedProductsList);
+        const toSend = updatedProductsList.map(({ unit, ...rest }) => rest);
+        const { error } = await supabase.from('products').upsert(toSend);
         if (error) throw error;
       } catch (err) {
         console.error('Failed to import products to Supabase:', err);

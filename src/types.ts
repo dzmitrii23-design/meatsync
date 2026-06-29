@@ -7,6 +7,7 @@ export type Product = {
   notifyBeforeDays?: number; // Оповещение об истечении срока за указанное число дней
   rawMaterial?: string;      // Свинина, Говядина, Птица, Баранина, Субпродукты, Иное
   packagingType?: string;    // Блочка, Мелкая фасовка, Отруба, Полутуши, Вакуум, Лотки, Иное
+  unit?: string;             // Единица измерения: кг, шт, м и т.д.
 };
 
 export type LocationType = 'main_fridge' | 'reefer' | 'shock_freezer' | 'chilled_fridge' | 'returns';
