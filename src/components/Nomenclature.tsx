@@ -882,6 +882,7 @@ export function Nomenclature({
               <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Артикул</th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Наименование</th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Характеристики / Группа</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Ед. изм.</th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Состояние</th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Срок хранения</th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Оповещение</th>
@@ -891,7 +892,7 @@ export function Nomenclature({
           <tbody className="bg-white divide-y divide-gray-200">
             {filteredProducts.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-500 font-sans">
+                <td colSpan={8} className="px-6 py-8 text-center text-gray-500 font-sans">
                   {products.length === 0 ? "Каталог продукции пока пуст." : "Нет позиций, соответствующих выбранным фильтрам поиска."}
                 </td>
               </tr>
@@ -934,6 +935,17 @@ export function Nomenclature({
                     </td>
                     <td className="px-4 py-3">
                       <select 
+                        value={formData.unit} 
+                        onChange={e => setFormData({ ...formData, unit: e.target.value })}
+                        className="w-full rounded border px-1.5 py-0.5 text-xs font-semibold cursor-pointer focus:ring-1 focus:ring-blue-500 bg-white"
+                      >
+                        <option value="кг">кг</option>
+                        <option value="шт">шт</option>
+                        <option value="м">м</option>
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <select 
                         value={formData.category} 
                         onChange={e => setFormData({ ...formData, category: e.target.value })}
                         className="w-full rounded border px-1.5 py-1 text-xs font-semibold cursor-pointer focus:ring-1 focus:ring-blue-500 bg-white"
@@ -969,12 +981,12 @@ export function Nomenclature({
                       <div className="flex flex-col gap-1 items-start">
                         {getMaterialBadge(product.rawMaterial)}
                         {getPackagingBadge(product.packagingType)}
-                        {product.unit && (
-                          <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
-                            📏 {product.unit}
-                          </span>
-                        )}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                      <span className="text-xs text-indigo-700 font-bold bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                        {product.unit || 'кг'}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-sans">
                       <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-xs">{product.category}</span>
