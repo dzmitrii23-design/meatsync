@@ -61,7 +61,9 @@ export function autoDetectAttributes(p: { name: string; category: string }): { r
   const cat = (p.category || '').toLowerCase();
   const name = (p.name || '').toLowerCase();
 
-  if (cat.includes('свин') || name.includes('свин')) {
+  if (cat.includes('готов') || name.includes('готов') || name.includes('колбас') || name.includes('сосиск') || name.includes('ветчин') || name.includes('сардельк') || name.includes('копчен') || name.includes('деликатес') || name.includes('сервелат')) {
+    rawMaterial = 'Готовая продукция';
+  } else if (cat.includes('свин') || name.includes('свин')) {
     rawMaterial = 'Свинина';
   } else if (cat.includes('гов') || name.includes('гов')) {
     rawMaterial = 'Говядина';
@@ -101,7 +103,9 @@ export function generateProductSku(
   let matCode = 'GEN';
   const mat = (rawMaterial || category || '').trim().toLowerCase();
   
-  if (mat.includes('свин')) {
+  if (mat.includes('готов')) {
+    matCode = 'GP';
+  } else if (mat.includes('свин')) {
     matCode = 'SV';
   } else if (mat.includes('гов')) {
     matCode = 'BV';

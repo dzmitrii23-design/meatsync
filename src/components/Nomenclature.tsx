@@ -17,6 +17,8 @@ const getMaterialBadge = (material?: string) => {
       return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-900 border border-red-200">🐏 Баранина</span>;
     case 'Субпродукты':
       return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">🩸 Субпродукты</span>;
+    case 'Готовая продукция':
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">🍱 Готовая продукция</span>;
     default:
       return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-800 border border-slate-200">📦 Иное</span>;
   }
@@ -785,6 +787,7 @@ export function Nomenclature({
                 <option value="Птица">Птица / Курица (префикс PT)</option>
                 <option value="Баранина">Баранина (префикс BR)</option>
                 <option value="Субпродукты">Субпродукты (префикс SUB)</option>
+                <option value="Готовая продукция">Готовая продукция (префикс GP)</option>
                 <option value="Иное">Иное сырье (префикс по категории)</option>
               </select>
             </div>
@@ -852,6 +855,7 @@ export function Nomenclature({
             <option value="Птица">🐓 Птица</option>
             <option value="Баранина">🐏 Баранина</option>
             <option value="Субпродукты">🩸 Субпродукты</option>
+            <option value="Готовая продукция">🍱 Готовая продукция</option>
             <option value="Иное">📦 Иное сырье</option>
           </select>
         </div>
@@ -917,6 +921,7 @@ export function Nomenclature({
                         <option value="Птица">Птица / Курица</option>
                         <option value="Баранина">Баранина</option>
                         <option value="Субпродукты">Субпродукты</option>
+                        <option value="Готовая продукция">Готовая продукция</option>
                         <option value="Иное">Иное сырье</option>
                       </select>
                       <select 

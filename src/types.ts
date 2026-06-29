@@ -5,7 +5,7 @@ export type Product = {
   category: string;
   defaultShelfLifeDays: number;
   notifyBeforeDays?: number; // Оповещение об истечении срока за указанное число дней
-  rawMaterial?: string;      // Свинина, Говядина, Птица, Баранина, Субпродукты, Иное
+  rawMaterial?: string;      // Свинина, Говядина, Птица, Баранина, Субпродукты, Иное, Готовая продукция
   packagingType?: string;    // Блочка, Мелкая фасовка, Отруба, Полутуши, Вакуум, Лотки, Иное
   unit?: string;             // Единица измерения: кг, шт, м и т.д.
 };
