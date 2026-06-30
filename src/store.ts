@@ -374,38 +374,84 @@ export function useAppStore() {
   };
 
   const processIncome = async (batchData: Omit<Batch, 'id' | 'initialQuantityKg'>) => {
-    const batchId = generateId();
-    const newBatch: Batch = {
-      ...batchData,
-      id: batchId,
-      initialQuantityKg: batchData.quantityKg,
-    };
-    const newTransaction: Transaction = {
-      id: generateId(),
-      type: 'IN',
-      productId: batchData.productId,
-      quantityKg: batchData.quantityKg,
-      date: batchData.receivedAt,
-      batchId: batchId,
-      toLocationId: batchData.locationId,
-    };
+    const existingBatch = state.batches.find(b => 
+      b.productId === batchData.productId &&
+      b.locationId === batchData.locationId &&
+      b.receivedAt.split('T')[0] === batchData.receivedAt.split('T')[0]
+    );
 
-    if (isOnline) {
-      try {
-        const { error: batchErr } = await supabase.from('batches').insert(newBatch);
-        if (batchErr) throw batchErr;
-        const { error: txErr } = await supabase.from('transactions').insert(newTransaction);
-        if (txErr) throw txErr;
-      } catch (err) {
-        console.error('Failed to record income in Supabase:', err);
+    if (existingBatch) {
+      const updatedBatch: Batch = {
+        ...existingBatch,
+        quantityKg: existingBatch.quantityKg + batchData.quantityKg,
+        initialQuantityKg: existingBatch.initialQuantityKg + batchData.quantityKg,
+      };
+      const newTransaction: Transaction = {
+        id: generateId(),
+        type: 'IN',
+        productId: batchData.productId,
+        quantityKg: batchData.quantityKg,
+        date: batchData.receivedAt,
+        batchId: existingBatch.id,
+        toLocationId: batchData.locationId,
+      };
+
+      if (isOnline) {
+        try {
+          const { error: batchErr } = await supabase
+            .from('batches')
+            .update({ 
+              quantityKg: updatedBatch.quantityKg,
+              initialQuantityKg: updatedBatch.initialQuantityKg
+            })
+            .eq('id', existingBatch.id);
+          if (batchErr) throw batchErr;
+          const { error: txErr } = await supabase.from('transactions').insert(newTransaction);
+          if (txErr) throw txErr;
+        } catch (err) {
+          console.error('Failed to update existing batch for income in Supabase:', err);
+        }
       }
-    }
 
-    setState(prev => ({
-      ...prev,
-      batches: [...prev.batches, newBatch],
-      transactions: [newTransaction, ...prev.transactions],
-    }));
+      setState(prev => ({
+        ...prev,
+        batches: prev.batches.map(b => b.id === existingBatch.id ? updatedBatch : b),
+        transactions: [newTransaction, ...prev.transactions],
+      }));
+    } else {
+      const batchId = generateId();
+      const newBatch: Batch = {
+        ...batchData,
+        id: batchId,
+        initialQuantityKg: batchData.quantityKg,
+      };
+      const newTransaction: Transaction = {
+        id: generateId(),
+        type: 'IN',
+        productId: batchData.productId,
+        quantityKg: batchData.quantityKg,
+        date: batchData.receivedAt,
+        batchId: batchId,
+        toLocationId: batchData.locationId,
+      };
+
+      if (isOnline) {
+        try {
+          const { error: batchErr } = await supabase.from('batches').insert(newBatch);
+          if (batchErr) throw batchErr;
+          const { error: txErr } = await supabase.from('transactions').insert(newTransaction);
+          if (txErr) throw txErr;
+        } catch (err) {
+          console.error('Failed to record income in Supabase:', err);
+        }
+      }
+
+      setState(prev => ({
+        ...prev,
+        batches: [...prev.batches, newBatch],
+        transactions: [newTransaction, ...prev.transactions],
+      }));
+    }
   };
 
   const processOutcome = async (
@@ -672,33 +718,70 @@ export function useAppStore() {
 
     if (tx.type === 'IN') {
       if (tx.batchId) {
-        const hasDependentTransactions = state.transactions.some(t => 
-          t.id !== id && 
-          t.batchId === tx.batchId
-        );
-        if (hasDependentTransactions) {
-          return {
-            success: false,
-            error: 'Невозможно удалить приход: по этой партии в системе зарегистрированы движения (продажи или перемещения). Сначала удалите связанные расходы/перемещения в Журнале.'
-          };
-        }
-
         const batch = state.batches.find(b => b.id === tx.batchId);
         if (batch) {
-          if (batch.quantityKg < batch.initialQuantityKg) {
+          const updatedQty = batch.quantityKg - tx.quantityKg;
+          const updatedInitialQty = batch.initialQuantityKg - tx.quantityKg;
+
+          // 1. Если это единственный/последний приход в партии (вес транзакции равен начальному весу партии),
+          // и при этом в системе зарегистрированы расходы/перемещения, блокируем с ошибкой о зависимых проводках
+          if (tx.quantityKg === batch.initialQuantityKg) {
+            const hasDependentTransactions = state.transactions.some(t => 
+              t.id !== id && 
+              t.batchId === tx.batchId &&
+              t.type !== 'IN'
+            );
+            if (hasDependentTransactions) {
+              return {
+                success: false,
+                error: 'Невозможно удалить приход: по этой партии в системе зарегистрированы движения (продажи или перемещения). Сначала удалите связанные расходы/перемещения в Журнале.'
+              };
+            }
+          }
+
+          // 2. Проверяем, не списано ли физически больше, чем мы пытаемся удалить
+          if (updatedQty < 0 || updatedInitialQty < 0) {
             return {
               success: false,
               error: `Невозможно удалить приход: с этой партии уже списано ${batch.initialQuantityKg - batch.quantityKg} кг. Сначала удалите соответствующие расходы.`
             };
           }
-        }
 
-        nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
-        if (isOnline) {
-          supabaseOperations.push(async () => {
-            const { error } = await supabase.from('batches').delete().eq('id', tx.batchId);
-            if (error) throw error;
-          });
+          // 3. Если физического веса хватает, но партия должна быть полностью удалена (updatedQty === 0),
+          // проверяем, нет ли других зависимых транзакций в системе, чтобы избежать нарушения связей
+          if (updatedQty === 0) {
+            const hasDependentTransactions = state.transactions.some(t => 
+              t.id !== id && 
+              t.batchId === tx.batchId &&
+              t.type !== 'IN'
+            );
+            if (hasDependentTransactions) {
+              return {
+                success: false,
+                error: 'Невозможно удалить приход: по этой партии в системе зарегистрированы движения (продажи или перемещения). Сначала удалите связанные расходы/перемещения в Журнале.'
+              };
+            }
+          }
+
+          if (updatedQty <= 0) {
+            nextBatches = nextBatches.filter(b => b.id !== tx.batchId);
+            if (isOnline) {
+              supabaseOperations.push(async () => {
+                const { error } = await supabase.from('batches').delete().eq('id', tx.batchId);
+                if (error) throw error;
+              });
+            }
+          } else {
+            nextBatches = nextBatches.map(b =>
+              b.id === tx.batchId ? { ...b, quantityKg: updatedQty, initialQuantityKg: updatedInitialQty } : b
+            );
+            if (isOnline) {
+              supabaseOperations.push(async () => {
+                const { error } = await supabase.from('batches').update({ quantityKg: updatedQty, initialQuantityKg: updatedInitialQty }).eq('id', tx.batchId);
+                if (error) throw error;
+              });
+            }
+          }
         }
       }
     } else if (tx.type === 'OUT') {

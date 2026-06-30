@@ -232,7 +232,7 @@ describe('utils.ts tests', () => {
       // 1. Создаем приход 500 кг
       await act(async () => {
         await result.current.processIncome({
-          productId: 'p2',
+          productId: 'p5',
           locationId: 'loc_main_1',
           quantityKg: 500,
           receivedAt: new Date().toISOString(),
@@ -258,6 +258,112 @@ describe('utils.ts tests', () => {
         const deleteRes = await result.current.deleteTransaction(incomeTx.id);
         expect(deleteRes.success).toBe(false);
         expect(deleteRes.error).toContain('по этой партии в системе зарегистрированы движения');
+      });
+    });
+
+    it('should merge two IN transactions with same product, location, and date into one batch', async () => {
+      const { result } = renderHook(() => useAppStore());
+      const testDate = new Date('2026-06-30T12:00:00.000Z').toISOString();
+
+      // 1. Создаем первый приход 150 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p7',
+          locationId: 'loc_main_1',
+          quantityKg: 150,
+          receivedAt: testDate,
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      // 2. Создаем второй приход 100 кг для того же товара, локации и даты
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p7',
+          locationId: 'loc_main_1',
+          quantityKg: 100,
+          receivedAt: testDate,
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      // 3. Должна быть одна партия с суммарным весом 250 кг
+      const tx1 = result.current.state.transactions[1]; // Второй по счету (новый идет в начало массива)
+      const tx2 = result.current.state.transactions[0]; // Первый в массиве (последний добавленный)
+      
+      expect(tx1.batchId).toBe(tx2.batchId);
+
+      const batch = result.current.state.batches.find(b => b.id === tx1.batchId);
+      expect(batch?.quantityKg).toBe(250);
+      expect(batch?.initialQuantityKg).toBe(250);
+
+      // 4. Удаляем один из приходов (100 кг)
+      await act(async () => {
+        const deleteRes = await result.current.deleteTransaction(tx2.id);
+        expect(deleteRes.success).toBe(true);
+      });
+
+      // Партия должна остаться, вес уменьшиться до 150 кг
+      const updatedBatch = result.current.state.batches.find(b => b.id === tx1.batchId);
+      expect(updatedBatch).toBeDefined();
+      expect(updatedBatch?.quantityKg).toBe(150);
+      expect(updatedBatch?.initialQuantityKg).toBe(150);
+
+      // 5. Удаляем второй приход (150 кг)
+      await act(async () => {
+        const deleteRes = await result.current.deleteTransaction(tx1.id);
+        expect(deleteRes.success).toBe(true);
+      });
+
+      // Партия должна быть полностью удалена
+      const deletedBatch = result.current.state.batches.find(b => b.id === tx1.batchId);
+      expect(deletedBatch).toBeUndefined();
+    });
+
+    it('should block deletion of one IN transaction of merged batch if remaining quantity is insufficient', async () => {
+      const { result } = renderHook(() => useAppStore());
+      const testDate = new Date('2026-06-30T12:00:00.000Z').toISOString();
+
+      // 1. Создаем первый приход 100 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p7',
+          locationId: 'loc_main_1',
+          quantityKg: 100,
+          receivedAt: testDate,
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      // 2. Создаем второй приход 100 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p7',
+          locationId: 'loc_main_1',
+          quantityKg: 100,
+          receivedAt: testDate,
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      const tx1 = result.current.state.transactions[1];
+      const batchId = tx1.batchId;
+
+      // 3. Расходуем 150 кг (остается 50 кг)
+      await act(async () => {
+        await result.current.processOutcome(
+          batchId!,
+          150,
+          new Date().toISOString(),
+          'Test spend of merged'
+        );
+      });
+
+      // 4. Пытаемся удалить один из приходов по 100 кг
+      await act(async () => {
+        const deleteRes = await result.current.deleteTransaction(tx1.id);
+        expect(deleteRes.success).toBe(false);
+        expect(deleteRes.error).toContain('с этой партии уже списано');
       });
     });
   });
