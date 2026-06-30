@@ -681,15 +681,19 @@ function IncomeForm({
                       <label className="block text-xs font-medium text-gray-600 mb-1">Вес (кг)</label>
                       <div className="flex gap-1">
                         <input
-                          type="number"
-                          min="0.1"
-                          step="0.1"
+                          type="text"
+                          inputMode="decimal"
                           value={row.weight}
-                          onChange={(e) => handleSplitRowChange(row.id, 'weight', e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(',', '.');
+                            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                              handleSplitRowChange(row.id, 'weight', val);
+                            }
+                          }}
                           className="flex-1 rounded-md border border-gray-300 shadow-sm p-2 text-sm font-semibold"
-                          placeholder="0.0"
+                          placeholder="Введите вес..."
                         />
-                        {remainingSplitWeight > 0 && !row.weight && (
+                        {remainingSplitWeight > 0 && (!row.weight || parseFloat(row.weight) === 0) && (
                           <button
                             type="button"
                             onClick={() => handleFillRemaining(row.id)}
