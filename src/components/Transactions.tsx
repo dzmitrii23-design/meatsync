@@ -15,6 +15,8 @@ import {
   Scissors,
   X,
   AlertCircle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface Props {
@@ -832,6 +834,15 @@ function OutcomeForm({
     format(new Date(), "yyyy-MM-dd"),
   );
 
+  const [expandedProductIds, setExpandedProductIds] = useState<Record<string, boolean>>({});
+
+  const toggleProductExpand = (productId: string) => {
+    setExpandedProductIds((prev) => ({
+      ...prev,
+      [productId]: !prev[productId],
+    }));
+  };
+
   const draftAllocatedWeights = useMemo(() => {
     const map: Record<string, number> = {};
     drafts.forEach((d) => {
@@ -860,6 +871,30 @@ function OutcomeForm({
           new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime(),
       );
   }, [batches, products, searchTerm, draftAllocatedWeights]);
+
+  const groupedProducts = useMemo(() => {
+    const map: Record<string, { product: Product; batches: Batch[]; totalKg: number }> = {};
+    
+    filteredBatches.forEach((b) => {
+      const p = products.find((prod) => prod.id === b.productId);
+      if (!p) return;
+      
+      const allocated = draftAllocatedWeights[b.id] || 0;
+      const availableQty = b.quantityKg - allocated;
+      
+      if (!map[p.id]) {
+        map[p.id] = {
+          product: p,
+          batches: [],
+          totalKg: 0
+        };
+      }
+      map[p.id].batches.push(b);
+      map[p.id].totalKg += availableQty;
+    });
+    
+    return Object.values(map).sort((a, b) => b.totalKg - a.totalKg);
+  }, [filteredBatches, products, draftAllocatedWeights]);
 
   const handleAddDraft = (batchId: string) => {
     const data = inputs[batchId];
@@ -982,200 +1017,223 @@ function OutcomeForm({
         </div>
 
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-          {filteredBatches.length === 0 ? (
+          {groupedProducts.length === 0 ? (
             <div className="text-center py-10 text-gray-500 bg-white rounded-lg border">
-              Нет доступных партий по вашему запросу.
+              Нет доступных товаров для списания по вашему запросу.
             </div>
           ) : (
-            filteredBatches.map((b) => {
-              const product = products.find((p) => p.id === b.productId);
-              const location = locations.find((l) => l.id === b.locationId);
-              if (!product || !location) return null;
-
-              const expires = new Date(b.expiresAt);
-              const daysLeft = differenceInDays(expires, new Date());
-              const threshold = product.notifyBeforeDays ?? 14;
-              const isCritical = daysLeft < threshold;
-              const isExpired = daysLeft < 0;
-
-              const allocated = draftAllocatedWeights[b.id] || 0;
-              const maxQty = b.quantityKg - allocated;
-
-              const enteredQtyVal = inputs[b.id]?.qty;
-              const finalQtyStr = enteredQtyVal !== undefined ? enteredQtyVal : maxQty.toString();
-              const finalQtyValue = Number(finalQtyStr.replace(',', '.'));
-              const isInvalidQty = isNaN(finalQtyValue) || finalQtyValue <= 0 || finalQtyValue > maxQty;
-
+            groupedProducts.map((item) => {
+              const isExpanded = !!expandedProductIds[item.product.id];
               return (
                 <div
-                  key={b.id}
-                  className="bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col"
+                  key={item.product.id}
+                  className="bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col transition-all"
                 >
-                  <div className="p-4 border-b bg-slate-50 flex justify-between items-start gap-4">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-lg leading-tight flex flex-wrap items-center gap-2">
-                        <span>{product.name}</span>
-                        {product.packagingType && (
-                          <span className="text-xs font-bold bg-slate-200/80 text-slate-700 border border-slate-300 px-2 py-0.5 rounded-md uppercase">
-                            {product.packagingType}
-                          </span>
-                        )}
-                      </h3>
-                      <div className="text-sm text-gray-600 mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                        <span>
-                          Склад:{" "}
-                          <strong className="text-gray-900">
-                            {location.name}
-                          </strong>
-                        </span>
-                        <span className="text-gray-400">|</span>
-                        <span>Артикул: {product.sku}</span>
+                  {/* Заголовок-аккордеон */}
+                  <div
+                    onClick={() => toggleProductExpand(item.product.id)}
+                    className="p-4 bg-slate-50 flex justify-between items-center gap-4 cursor-pointer hover:bg-slate-100/80 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="text-slate-400">
+                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-900 text-base leading-tight flex flex-wrap items-center gap-2">
+                          <span>{item.product.name}</span>
+                          {item.product.packagingType && (
+                            <span className="text-[10px] font-bold bg-slate-200 text-slate-700 border border-slate-300 px-1.5 py-0.5 rounded uppercase">
+                              {item.product.packagingType}
+                            </span>
+                          )}
+                        </h3>
+                        <div className="text-xs text-gray-500 mt-1">
+                          Артикул: {item.product.sku} | Доступно лотов (партий): {item.batches.length}
+                        </div>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-xs text-gray-500 mb-1 uppercase tracking-wider font-semibold">
-                        Доступно
+                      <div className="text-[10px] text-gray-400 mb-0.5 uppercase tracking-wider font-semibold">
+                        Общий остаток
                       </div>
-                      <div className="bg-blue-100 text-blue-800 font-bold px-3 py-1.5 rounded-lg text-lg ring-1 ring-blue-300">
-                        {maxQty.toLocaleString()}{" "}
-                        <span className="text-sm font-normal">кг</span>
+                      <div className="bg-indigo-50 text-indigo-800 border border-indigo-200 font-bold px-2.5 py-1 rounded-lg text-base">
+                        {item.totalKg.toLocaleString()} кг
                       </div>
                     </div>
                   </div>
 
-                  <div className="p-4 flex flex-col md:flex-row gap-4 items-center">
-                    <div className="w-full md:w-1/3 flex flex-col gap-1">
-                      <div
-                        className={`text-sm px-3 py-2 rounded border flex items-center justify-between
-                        ${isExpired ? "bg-red-50 border-red-200 text-red-800" : isCritical ? "bg-orange-50 border-orange-200 text-orange-800" : "bg-green-50 border-green-200 text-green-800"}
-                    `}
-                      >
-                        <span className="font-medium">
-                          Годен до: {format(expires, "dd.MM.yyyy")}
-                        </span>
-                        <span className="font-bold text-xs bg-white/50 px-2 py-0.5 rounded">
-                          {isExpired ? "ПРОСРОК" : `${daysLeft} дн`}
-                        </span>
-                      </div>
-                    </div>
+                  {/* Раскрывающийся контент с партиями */}
+                  {isExpanded && (
+                    <div className="p-4 bg-white border-t border-slate-200/60 space-y-4">
+                      {item.batches.map((b) => {
+                        const location = locations.find((l) => l.id === b.locationId);
+                        if (!location) return null;
 
-                    <div className="flex-1 w-full flex flex-col gap-3">
-                      {/* Спецификация типа списания */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-slate-50 border p-3 rounded-xl border-slate-200">
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Категория списания</label>
-                          <select
-                            className="w-full border border-gray-300 rounded-lg p-2.5 bg-white text-xs font-semibold cursor-pointer text-slate-800 focus:ring-1 focus:ring-blue-500"
-                            value={inputs[b.id]?.outcomeType || "sale"}
-                            onChange={(e) => updateInput(b.id, "outcomeType", e.target.value)}
+                        const expires = new Date(b.expiresAt);
+                        const daysLeft = differenceInDays(expires, new Date());
+                        const threshold = item.product.notifyBeforeDays ?? 14;
+                        const isCritical = daysLeft < threshold;
+                        const isExpired = daysLeft < 0;
+
+                        const allocated = draftAllocatedWeights[b.id] || 0;
+                        const maxQty = b.quantityKg - allocated;
+
+                        const enteredQtyVal = inputs[b.id]?.qty;
+                        const finalQtyStr = enteredQtyVal !== undefined ? enteredQtyVal : maxQty.toString();
+                        const finalQtyValue = Number(finalQtyStr.replace(',', '.'));
+                        const isInvalidQty = isNaN(finalQtyValue) || finalQtyValue <= 0 || finalQtyValue > maxQty;
+
+                        return (
+                          <div
+                            key={b.id}
+                            className="border border-slate-200 rounded-xl p-3.5 bg-slate-50/50 space-y-3"
                           >
-                            <option value="sale">🤝 Продажа покупателю</option>
-                            <option value="waste">🗑️ Списание в утиль</option>
-                            <option value="mpc">🏭 Перемещение в МПЦ</option>
-                          </select>
-                        </div>
-
-                        {/* Условные поля для покупателя / причины утиля / МПЦ */}
-                        {(inputs[b.id]?.outcomeType || "sale") === "sale" && (
-                          <div className="md:col-span-2">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Покупатель из справочника *</label>
-                            {buyers.length > 0 ? (
-                              <select
-                                className="w-full border border-gray-300 rounded-lg p-2.5 bg-white text-xs font-medium cursor-pointer text-slate-800 focus:ring-1 focus:ring-blue-500"
-                                value={inputs[b.id]?.buyerId || buyers[0]?.id || ""}
-                                onChange={(e) => updateInput(b.id, "buyerId", e.target.value)}
-                              >
-                                {buyers.map((by) => (
-                                  <option key={by.id} value={by.id}>
-                                    {by.name} {by.inn ? `(ИНН: ${by.inn})` : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <div className="text-xs text-amber-700 bg-amber-50 rounded-lg border border-amber-200 p-2.5 font-medium">
-                                ⚠️ Нет доступных покупателей! Внесите их в справочник во вкладке «База».
+                            {/* Заголовок партии */}
+                            <div className="flex justify-between items-start border-b border-slate-200/60 pb-2">
+                              <div className="text-xs space-y-1">
+                                <div>
+                                  <span className="font-medium text-slate-500">Камера: </span>
+                                  <span className="font-bold text-slate-800">{location.name}</span>
+                                </div>
+                                {b.manufacturedAt && (
+                                  <div>
+                                    <span className="font-medium text-slate-500">Выработка: </span>
+                                    <span className="font-semibold text-slate-700">
+                                      {format(new Date(b.manufacturedAt), "dd.MM.yyyy")}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        )}
-                        {(inputs[b.id]?.outcomeType || "sale") === "waste" && (
-                          <div className="md:col-span-2">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Причина утилизации (можно написать текстом) *</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Например: Истек сырьевой срок, технологический брак, бой упаковки..."
-                              className="w-full border border-gray-300 rounded-lg p-2.5 text-xs text-slate-900 bg-white focus:ring-red-500 focus:border-red-500"
-                              value={inputs[b.id]?.wasteReason || ""}
-                              onChange={(e) => updateInput(b.id, "wasteReason", e.target.value)}
-                            />
-                          </div>
-                        )}
-                        {(inputs[b.id]?.outcomeType || "sale") === "mpc" && (
-                          <div className="md:col-span-2">
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Назначение перемещения</label>
-                            <div className="text-xs text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 font-medium flex items-center gap-1.5 h-10 select-none">
-                              🏭 Продукция перемещается в мясоперерабатывающий цех (МПЦ) для производства.
+
+                              <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                                  isExpired ? "bg-red-100 text-red-700" : isCritical ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"
+                                }`}>
+                                  Годен до: {format(expires, "dd.MM.yyyy")} ({isExpired ? "ПРОСРОК" : `${daysLeft} дн`})
+                                </span>
+                                <span className="text-[10px] font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                  В лоте: {maxQty.toLocaleString()} кг
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Элементы управления списанием */}
+                            <div className="flex flex-col gap-3">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-slate-200/60">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Категория списания</label>
+                                  <select
+                                    className="w-full border border-gray-300 rounded-lg p-2 bg-white text-xs font-semibold cursor-pointer text-slate-800 focus:ring-1 focus:ring-blue-500"
+                                    value={inputs[b.id]?.outcomeType || "sale"}
+                                    onChange={(e) => updateInput(b.id, "outcomeType", e.target.value)}
+                                  >
+                                    <option value="sale">🤝 Продажа покупателю</option>
+                                    <option value="waste">🗑️ Списание в утиль</option>
+                                    <option value="mpc">🏭 Перемещение в МПЦ</option>
+                                  </select>
+                                </div>
+
+                                {/* Условные поля для покупателя / причины утиля / МПЦ */}
+                                {(inputs[b.id]?.outcomeType || "sale") === "sale" && (
+                                  <div className="md:col-span-2">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Покупатель *</label>
+                                    {buyers.length > 0 ? (
+                                      <select
+                                        className="w-full border border-gray-300 rounded-lg p-2 bg-white text-xs font-medium cursor-pointer text-slate-800 focus:ring-1 focus:ring-blue-500"
+                                        value={inputs[b.id]?.buyerId || buyers[0]?.id || ""}
+                                        onChange={(e) => updateInput(b.id, "buyerId", e.target.value)}
+                                      >
+                                        {buyers.map((by) => (
+                                          <option key={by.id} value={by.id}>
+                                            {by.name} {by.inn ? `(ИНН: ${by.inn})` : ""}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <div className="text-[10px] text-amber-700 bg-amber-50 rounded-lg border border-amber-200 p-2 font-medium">
+                                        ⚠️ Нет доступных покупателей! Внесите их в справочник.
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {(inputs[b.id]?.outcomeType || "sale") === "waste" && (
+                                  <div className="md:col-span-2">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Причина утилизации *</label>
+                                    <input
+                                      type="text"
+                                      required
+                                      placeholder="Например: Истек сырьевой срок..."
+                                      className="w-full border border-gray-300 rounded-lg p-2 text-xs text-slate-900 bg-white focus:ring-red-500 focus:border-red-500"
+                                      value={inputs[b.id]?.wasteReason || ""}
+                                      onChange={(e) => updateInput(b.id, "wasteReason", e.target.value)}
+                                    />
+                                  </div>
+                                )}
+                                {(inputs[b.id]?.outcomeType || "sale") === "mpc" && (
+                                  <div className="md:col-span-2 flex items-center">
+                                    <div className="text-[10px] text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg p-2 font-medium select-none w-full">
+                                      🏭 Продукция перемещается в МПЦ.
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Поля веса и отправки */}
+                              <div className="flex gap-2">
+                                <div className="relative w-[150px] shrink-0">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    placeholder="Вес (кг)"
+                                    className={`w-full border rounded-lg p-2.5 pr-12 text-sm font-extrabold shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-950 ${
+                                      isInvalidQty
+                                        ? "border-red-500 bg-red-50 text-red-900 focus:ring-red-500"
+                                        : "border-gray-300 text-slate-950 bg-white"
+                                    }`}
+                                    value={finalQtyStr}
+                                    onChange={(e) => {
+                                      const val = e.target.value.replace(/[^0-9.,]/g, '');
+                                      updateInput(b.id, "qty", val);
+                                    }}
+                                  />
+                                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => updateInput(b.id, "qty", maxQty.toString())}
+                                      className="text-[9px] bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 font-bold px-1.5 py-0.5 rounded border border-blue-200 cursor-pointer select-none active:scale-95"
+                                      title="Выбрать весь доступный вес"
+                                    >
+                                      Всё
+                                    </button>
+                                    <span className="text-gray-400 text-xs font-mono select-none">
+                                      кг
+                                    </span>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleAddDraft(b.id)}
+                                  disabled={
+                                    isInvalidQty ||
+                                    ((inputs[b.id]?.outcomeType || "sale") === "sale" && buyers.length === 0) ||
+                                    ((inputs[b.id]?.outcomeType || "sale") === "waste" && (!inputs[b.id]?.wasteReason || !inputs[b.id].wasteReason.trim()))
+                                  }
+                                  className="flex-1 bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white font-bold rounded-lg px-4 py-2 text-sm shadow-md hover:bg-blue-700 transition whitespace-nowrap cursor-pointer active:scale-[0.98]"
+                                >
+                                  Добавить в список
+                                </button>
+                              </div>
+                              {isInvalidQty && Number((inputs[b.id]?.qty || "").replace(',', '.')) > maxQty && (
+                                <div className="text-[10px] text-red-600 font-bold bg-red-50 px-2.5 py-1 rounded border border-red-100 self-start">
+                                  ⚠️ Вес ({Number(inputs[b.id]?.qty.replace(',', '.')).toLocaleString()} кг)
+                                  превышает лимит партии ({maxQty.toLocaleString()} кг)!
+                                </div>
+                              )}
                             </div>
                           </div>
-                        )}
-                      </div>
-
-                      {/* Поля веса и отправки */}
-                      <div className="flex flex-col sm:flex-row gap-2 mt-1">
-                        <div className="relative w-full sm:w-[180px] shrink-0">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            placeholder="Вес (кг)"
-                            className={`w-full border rounded-lg p-3 pr-16 text-lg font-extrabold shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-white text-slate-950 ${
-                              isInvalidQty
-                                ? "border-red-500 bg-red-50 text-red-900 focus:ring-red-500"
-                                : "border-gray-300 text-slate-950 bg-white"
-                            }`}
-                            value={finalQtyStr}
-                            onChange={(e) => {
-                              const val = e.target.value.replace(/[^0-9.,]/g, '');
-                              updateInput(b.id, "qty", val);
-                            }}
-                          />
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateInput(b.id, "qty", maxQty.toString())
-                              }
-                              className="text-[10px] bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 font-bold px-1.5 py-0.5 rounded border border-blue-200 cursor-pointer select-none active:scale-95"
-                              title="Выбрать весь доступный вес"
-                            >
-                              Всё
-                            </button>
-                            <span className="text-gray-400 text-xs font-mono select-none">
-                              кг
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleAddDraft(b.id)}
-                          disabled={
-                            isInvalidQty ||
-                            ((inputs[b.id]?.outcomeType || "sale") === "sale" && buyers.length === 0) ||
-                            ((inputs[b.id]?.outcomeType || "sale") === "waste" && (!inputs[b.id]?.wasteReason || !inputs[b.id].wasteReason.trim()))
-                          }
-                          className="flex-1 bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white font-bold rounded-lg px-6 py-3 shadow-md hover:bg-blue-700 transition whitespace-nowrap cursor-pointer active:scale-[0.98]"
-                        >
-                          Добавить в список
-                        </button>
-                      </div>
-                      {isInvalidQty && Number((inputs[b.id]?.qty || "").replace(',', '.')) > maxQty && (
-                        <div className="text-xs text-red-600 font-bold flex items-center gap-1 bg-red-50 px-2.5 py-1.5 rounded-md border border-red-100 self-start">
-                          ⚠️ Вес ({Number(inputs[b.id]?.qty.replace(',', '.')).toLocaleString()} кг)
-                          превышает доступный лимит партии (
-                          {maxQty.toLocaleString()} кг)!
-                        </div>
-                      )}
+                        );
+                      })}
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             })
