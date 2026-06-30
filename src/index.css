@@ -6,3 +6,56 @@
   --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
+
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+
+  /* Скрыть шапку, кнопки, фильтры и панели чата */
+  header,
+  nav,
+  button,
+  select,
+  .print\:hidden,
+  aside,
+  [data-testid="ai-assistant"] {
+    display: none !important;
+  }
+
+  /* Разблокировать высоту и скролл для полной печати */
+  html,
+  body,
+  #root,
+  .h-screen,
+  main,
+  .overflow-hidden,
+  .overflow-y-auto {
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /* Сброс лишних отступов и фонов для печати */
+  main {
+    background-color: white !important;
+    padding: 0 !important;
+  }
+
+  .bg-gray-50,
+  .bg-slate-50\/50,
+  .bg-slate-50 {
+    background-color: white !important;
+  }
+
+  /* Карточки не должны рваться посередине на стыке страниц */
+  .border,
+  .rounded-xl,
+  .shadow-sm,
+  .space-y-4 > div {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

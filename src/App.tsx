@@ -55,9 +55,9 @@ export default function App() {
   };
 
   return (
-    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden print:h-auto print:overflow-visible print:bg-white">
       {/* Universal Top Header Panel */}
-      <header className="bg-slate-950 text-slate-300 border-b border-slate-900 z-30 shrink-0 shadow-md">
+      <header className="bg-slate-950 text-slate-300 border-b border-slate-900 z-30 shrink-0 shadow-md print:hidden">
         <div className="max-w-[1500px] mx-auto px-4 md:px-8 py-3.5 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
           
           {/* Logo / Brand & Administrator Badge */}
@@ -191,7 +191,7 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-gray-50 relative">
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-gray-50 relative print:h-auto print:overflow-visible print:bg-white">
         {loading && (
           <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center transition-all duration-300">
             <div className="flex flex-col items-center gap-3 bg-white p-6 rounded-2xl shadow-xl border border-gray-100/80 animate-in fade-in zoom-in-95 duration-200">
@@ -200,7 +200,7 @@ export default function App() {
             </div>
           </div>
         )}
-        <div className="max-w-[1500px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-8 flex-grow flex flex-col">
+        <div className="max-w-[1500px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-8 flex-grow flex flex-col print:p-0 print:pb-0">
           {activeTab === 'dashboard' && (
              <Dashboard 
                batches={state.batches} 
@@ -268,7 +268,9 @@ export default function App() {
           )}
         </div>
       </main>
-      <AiAssistantPanel state={state} />
+      <div className="print:hidden">
+        <AiAssistantPanel state={state} />
+      </div>
     </div>
   );
 }

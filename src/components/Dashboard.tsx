@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, StorageLocation, Batch } from '../types';
 import { format, differenceInDays } from 'date-fns';
-import { AlertCircle, AlertTriangle, Package } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Package, Printer } from 'lucide-react';
 
 interface Props {
   batches: Batch[];
@@ -101,6 +101,15 @@ export function Dashboard({ batches, products, locations }: Props) {
     <div className="space-y-6">
       <div className="flex justify-between items-center pb-4 border-b">
         <h2 className="text-2xl font-medium tracking-tight text-gray-900">Остатки на складах (Дашборд)</h2>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="print:hidden flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors cursor-pointer active:scale-95"
+          title="Распечатать отчет остатков на складах"
+        >
+          <Printer size={16} />
+          <span>Печать отчета</span>
+        </button>
       </div>
 
       {/* Top Metrics */}
