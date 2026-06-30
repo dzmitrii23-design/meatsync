@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { autoDetectAttributes, generateProductSku, cn, parseOcrText, getProductNormalizedCategory, getProductPackagingLabel } from './utils';
 import { renderHook, act } from '@testing-library/react';
-import { useAppStore } from './store';
+import { useAppStore, mergeLocalAndDbStates } from './store';
 
 describe('utils.ts tests', () => {
   describe('cn', () => {
@@ -404,6 +404,54 @@ describe('utils.ts tests', () => {
 
       const batch = result.current.state.batches.find(b => b.id === tx1.batchId);
       expect(batch?.quantityKg).toBe(250);
+    });
+  });
+
+  describe('mergeLocalAndDbStates', () => {
+    it('should merge new transactions and batches from local state to db state without duplicates', () => {
+      const localState = {
+        products: [],
+        locations: [],
+        batches: [
+          { id: 'batch_local_new', productId: 'p1', locationId: 'loc_main_1', quantityKg: 100, initialQuantityKg: 100, receivedAt: '2026-07-01T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' },
+          { id: 'batch_existing', productId: 'p1', locationId: 'loc_main_1', quantityKg: 150, initialQuantityKg: 200, receivedAt: '2026-06-30T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' }
+        ],
+        transactions: [
+          { id: 'tx_local_new', type: 'IN', productId: 'p1', quantityKg: 100, date: '2026-07-01T00:00:00.000Z', batchId: 'batch_local_new', toLocationId: 'loc_main_1' }
+        ],
+        buyers: []
+      } as any;
+
+      const dbData = {
+        products: [{ id: 'p1', name: 'Product 1', sku: 'P1-01', category: 'Охлажденное', defaultShelfLifeDays: 15 }],
+        locations: [{ id: 'loc_main_1', name: 'Main Fridge', type: 'main_fridge', capacityKg: 20000 }],
+        batches: [
+          { id: 'batch_existing', productId: 'p1', locationId: 'loc_main_1', quantityKg: 200, initialQuantityKg: 200, receivedAt: '2026-06-30T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' }
+        ],
+        transactions: [
+          { id: 'tx_existing', type: 'IN', productId: 'p1', quantityKg: 200, date: '2026-06-30T00:00:00.000Z', batchId: 'batch_existing', toLocationId: 'loc_main_1' }
+        ],
+        buyers: []
+      } as any;
+
+      const merged = mergeLocalAndDbStates(localState, dbData);
+
+      expect(merged.products.length).toBe(1);
+      expect(merged.products[0].id).toBe('p1');
+
+      expect(merged.batches.length).toBe(2);
+      const bNew = merged.batches.find(b => b.id === 'batch_local_new');
+      const bExist = merged.batches.find(b => b.id === 'batch_existing');
+      expect(bNew).toBeDefined();
+      expect(bNew?.quantityKg).toBe(100);
+      expect(bExist).toBeDefined();
+      expect(bExist?.quantityKg).toBe(150);
+
+      expect(merged.transactions.length).toBe(2);
+      expect(merged.transactions.some(t => t.id === 'tx_local_new')).toBe(true);
+      expect(merged.transactions.some(t => t.id === 'tx_existing')).toBe(true);
+      
+      expect(merged.transactions[0].id).toBe('tx_local_new');
     });
   });
 });

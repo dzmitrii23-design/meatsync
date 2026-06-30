@@ -157,6 +157,74 @@ const loadState = (): AppState => {
   return defaultState;
 };
 
+// Слияние локального кэша и данных из базы Supabase
+export const mergeLocalAndDbStates = (
+  local: AppState,
+  db: {
+    products: Product[];
+    locations: StorageLocation[];
+    batches: Batch[];
+    transactions: Transaction[];
+    buyers: Buyer[];
+  }
+): AppState => {
+  const products = [...db.products];
+  if (local && Array.isArray(local.products)) {
+    local.products.forEach(lp => {
+      if (!products.some(dbp => dbp.id === lp.id)) {
+        products.push(lp);
+      }
+    });
+  }
+
+  const locations = db.locations && db.locations.length ? db.locations : (local && local.locations && local.locations.length ? local.locations : initialLocations);
+
+  const mergedBatches = [...db.batches];
+  if (local && Array.isArray(local.batches)) {
+    local.batches.forEach(lb => {
+      const idx = mergedBatches.findIndex(dbb => dbb.id === lb.id);
+      if (idx !== -1) {
+        if (
+          mergedBatches[idx].quantityKg !== lb.quantityKg ||
+          mergedBatches[idx].initialQuantityKg !== lb.initialQuantityKg ||
+          mergedBatches[idx].locationId !== lb.locationId
+        ) {
+          mergedBatches[idx] = { ...mergedBatches[idx], ...lb };
+        }
+      } else {
+        mergedBatches.push(lb);
+      }
+    });
+  }
+
+  const mergedTransactions = [...db.transactions];
+  if (local && Array.isArray(local.transactions)) {
+    local.transactions.forEach(ltx => {
+      if (!mergedTransactions.some(dbtx => dbtx.id === ltx.id)) {
+        mergedTransactions.push(ltx);
+      }
+    });
+  }
+  mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const buyers = [...db.buyers];
+  if (local && Array.isArray(local.buyers)) {
+    local.buyers.forEach(lby => {
+      if (!buyers.some(dbby => dbby.id === lby.id)) {
+        buyers.push(lby);
+      }
+    });
+  }
+
+  return {
+    products,
+    locations,
+    batches: mergedBatches,
+    transactions: mergedTransactions,
+    buyers
+  };
+};
+
 const saveState = (state: AppState) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -164,6 +232,72 @@ const saveState = (state: AppState) => {
     console.error('Failed to save state to localStorage', e);
   }
 };
+
+export async function syncLocalOnlyData(
+  local: AppState,
+  db: {
+    products: Product[];
+    buyers: Buyer[];
+    batches: Batch[];
+    transactions: Transaction[];
+  }
+) {
+  if (!isSupabaseConfigured) return;
+  try {
+    // 1. Продукты
+    const localOnlyProducts = (local.products || []).filter(lp => !db.products.some(dbp => dbp.id === lp.id));
+    if (localOnlyProducts.length > 0) {
+      console.log(`Syncing ${localOnlyProducts.length} new products to Supabase...`);
+      const { error } = await supabase.from('products').insert(localOnlyProducts);
+      if (error) throw error;
+    }
+
+    // 2. Покупатели
+    const localOnlyBuyers = (local.buyers || []).filter(lby => !db.buyers.some(dbby => dbby.id === lby.id));
+    if (localOnlyBuyers.length > 0) {
+      console.log(`Syncing ${localOnlyBuyers.length} new buyers to Supabase...`);
+      const { error } = await supabase.from('buyers').insert(localOnlyBuyers);
+      if (error) throw error;
+    }
+
+    // 3. Партии
+    const localOnlyBatches = (local.batches || []).filter(lb => !db.batches.some(dbb => dbb.id === lb.id));
+    if (localOnlyBatches.length > 0) {
+      console.log(`Syncing ${localOnlyBatches.length} new batches to Supabase...`);
+      const { error } = await supabase.from('batches').insert(localOnlyBatches);
+      if (error) throw error;
+    }
+
+    // 4. Измененные партии
+    const modifiedBatches = (local.batches || []).filter(lb => {
+      const dbb = db.batches.find(dbb => dbb.id === lb.id);
+      return dbb && (dbb.quantityKg !== lb.quantityKg || dbb.initialQuantityKg !== lb.initialQuantityKg || dbb.locationId !== lb.locationId);
+    });
+    if (modifiedBatches.length > 0) {
+      console.log(`Syncing ${modifiedBatches.length} modified batches to Supabase...`);
+      for (const mb of modifiedBatches) {
+        const { error } = await supabase.from('batches').update({
+          quantityKg: mb.quantityKg,
+          initialQuantityKg: mb.initialQuantityKg,
+          locationId: mb.locationId
+        }).eq('id', mb.id);
+        if (error) throw error;
+      }
+    }
+
+    // 5. Транзакции
+    const localOnlyTx = (local.transactions || []).filter(ltx => !db.transactions.some(dbtx => dbtx.id === ltx.id));
+    if (localOnlyTx.length > 0) {
+      console.log(`Syncing ${localOnlyTx.length} new transactions to Supabase...`);
+      const { error } = await supabase.from('transactions').insert(localOnlyTx);
+      if (error) throw error;
+    }
+
+    console.log('Offline sync completed successfully!');
+  } catch (err) {
+    console.error('Failed to sync offline data to Supabase:', err);
+  }
+}
 
 export function useAppStore() {
   const [state, setState] = useState<AppState>(loadState());
@@ -179,6 +313,7 @@ export function useAppStore() {
     }
 
     async function fetchFromSupabase() {
+      const local = loadState();
       try {
         setLoading(true);
         const [
@@ -199,19 +334,24 @@ export function useAppStore() {
           throw new Error('Supabase fetch error');
         }
 
-        setState({
+        const dbData = {
           products: dbProducts || [],
-          locations: dbLocations && dbLocations.length ? dbLocations : initialLocations,
+          locations: dbLocations || [],
           batches: dbBatches || [],
           transactions: dbTransactions || [],
           buyers: dbBuyers || []
-        });
+        };
+
+        const merged = mergeLocalAndDbStates(local, dbData);
+        setState(merged);
         setIsOnline(true);
+
+        // В фоне синхронизируем локальные изменения с Supabase
+        syncLocalOnlyData(local, dbData);
       } catch (err) {
         console.error('Supabase connection failed, falling back to localStorage:', err);
         setIsOnline(false);
-        // Загрузка локальных данных в случае ошибки
-        setState(loadState());
+        setState(local);
       } finally {
         setLoading(false);
       }
@@ -219,6 +359,53 @@ export function useAppStore() {
 
     fetchFromSupabase();
   }, []);
+
+  // Автосинхронизация при переходе в онлайн
+  useEffect(() => {
+    const handleOnline = async () => {
+      if (!isSupabaseConfigured) return;
+      console.log('Network is back online, triggering sync...');
+      setIsOnline(true);
+
+      try {
+        const [
+          { data: dbProducts },
+          { data: dbBuyers },
+          { data: dbBatches },
+          { data: dbTransactions }
+        ] = await Promise.all([
+          supabase.from('products').select('*'),
+          supabase.from('buyers').select('*'),
+          supabase.from('batches').select('*'),
+          supabase.from('transactions').select('*')
+        ]);
+
+        if (dbProducts && dbBuyers && dbBatches && dbTransactions) {
+          const dbData = {
+            products: dbProducts || [],
+            buyers: dbBuyers || [],
+            batches: dbBatches || [],
+            transactions: dbTransactions || []
+          };
+          await syncLocalOnlyData(state, dbData);
+        }
+      } catch (err) {
+        console.error('Failed to sync on network recovery:', err);
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [state]);
 
   // Кэширование состояния в localStorage для оффлайн работы
   useEffect(() => {
