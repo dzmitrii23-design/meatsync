@@ -12,6 +12,9 @@ import {
   Zap,
   Plus,
   Trash2,
+  Scissors,
+  X,
+  AlertCircle,
 } from "lucide-react";
 
 interface Props {
@@ -164,6 +167,12 @@ interface IncomeDraftItem {
   expiresAt: string;
 }
 
+interface SplitRow {
+  id: string;
+  weight: string;
+  date: string;
+}
+
 function IncomeForm({
   products,
   locations,
@@ -184,6 +193,10 @@ function IncomeForm({
   const [docReceivedAt, setDocReceivedAt] = useState(
     format(new Date(), "yyyy-MM-dd"),
   );
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
+  const [splitRows, setSplitRows] = useState<SplitRow[]>([
+    { id: '1', weight: '', date: format(new Date(), 'yyyy-MM-dd') },
+  ]);
   const chilledProducts = useMemo(() =>
     products.filter((p) => getProductNormalizedCategory(p) === "Охлажденное"),
     [products],
@@ -290,7 +303,68 @@ function IncomeForm({
     setDrafts([]);
   };
 
+  // --- Сплиттер дат ---
+  const totalSplitWeight = splitRows.reduce((sum, r) => sum + (parseFloat(r.weight) || 0), 0);
+  const targetWeight = parseFloat(quantityKg) || 0;
+  const remainingSplitWeight = Math.round((targetWeight - totalSplitWeight) * 100) / 100;
+
+  const handleOpenSplitter = () => {
+    setSplitRows([{ id: '1', weight: '', date: format(new Date(), 'yyyy-MM-dd') }]);
+    setIsSplitModalOpen(true);
+  };
+
+  const handleAddSplitRow = () => {
+    setSplitRows(prev => [
+      ...prev,
+      { id: `${Date.now()}-${Math.random()}`, weight: '', date: format(new Date(), 'yyyy-MM-dd') },
+    ]);
+  };
+
+  const handleRemoveSplitRow = (id: string) => {
+    setSplitRows(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleSplitRowChange = (id: string, field: 'weight' | 'date', value: string) => {
+    setSplitRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const handleFillRemaining = (id: string) => {
+    const otherSum = splitRows.reduce((sum, r) => r.id !== id ? sum + (parseFloat(r.weight) || 0) : sum, 0);
+    const remaining = Math.round((targetWeight - otherSum) * 100) / 100;
+    if (remaining > 0) {
+      handleSplitRowChange(id, 'weight', String(remaining));
+    }
+  };
+
+  const handleConfirmSplit = () => {
+    const prod = products.find(p => p.id === productId);
+    const loc = locations.find(l => l.id === locationId);
+    if (!prod || !loc) return;
+
+    const newDrafts: IncomeDraftItem[] = splitRows
+      .filter(r => parseFloat(r.weight) > 0 && r.date)
+      .map(r => ({
+        id: `${productId}-${Date.now()}-${Math.random()}`,
+        productId,
+        productName: prod.name,
+        category: prod.category,
+        packagingType: prod.packagingType,
+        locationId,
+        locationName: loc.name,
+        quantityKg: parseFloat(r.weight),
+        manufacturedAt: new Date(r.date).toISOString(),
+        expiresAt: format(addDays(new Date(r.date), prod.defaultShelfLifeDays), 'yyyy-MM-dd') + 'T00:00:00.000Z',
+      }));
+
+    setDrafts(prev => [...prev, ...newDrafts]);
+    setIsSplitModalOpen(false);
+    setQuantityKg('');
+    setProductId('');
+    setExpiresAt('');
+  };
+
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full max-w-full">
       {/* Левая колонка: Форма добавления */}
       <form
@@ -404,6 +478,18 @@ function IncomeForm({
               placeholder="0.0"
             />
           </div>
+
+          {/* Кнопка Сплиттера */}
+          {productId && locationId && parseFloat(quantityKg) > 0 && (
+            <button
+              type="button"
+              onClick={handleOpenSplitter}
+              className="w-full py-2.5 border-2 border-dashed border-indigo-300 text-indigo-700 rounded-lg font-semibold text-sm hover:bg-indigo-50 hover:border-indigo-400 transition-all flex justify-center items-center gap-2 cursor-pointer"
+            >
+              <Scissors size={16} />
+              Разбить по датам изготовления
+            </button>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -546,6 +632,148 @@ function IncomeForm({
         )}
       </div>
     </div>
+
+      {/* Модальное окно Сплиттера дат */}
+      {isSplitModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-150">
+            {/* Заголовок */}
+            <div className="p-5 border-b bg-indigo-50 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2 text-indigo-700">
+                <Scissors size={22} />
+                <h3 className="font-bold text-lg text-gray-900">Разбивка по датам изготовления</h3>
+              </div>
+              <button onClick={() => setIsSplitModalOpen(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Информация о целевом весе */}
+            <div className="px-5 pt-4 pb-2">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex justify-between items-center">
+                <span className="text-sm text-blue-800 font-medium">
+                  Общий вес по накладной:
+                </span>
+                <span className="text-lg font-extrabold text-blue-900">
+                  {targetWeight.toLocaleString()} кг
+                </span>
+              </div>
+            </div>
+
+            {/* Строки распределения */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-3">
+              {splitRows.map((row, index) => (
+                <div key={row.id} className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-500 uppercase">Партия #{index + 1}</span>
+                    {splitRows.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSplitRow(row.id)}
+                        className="text-red-400 hover:text-red-600 cursor-pointer p-1"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Вес (кг)</label>
+                      <div className="flex gap-1">
+                        <input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={row.weight}
+                          onChange={(e) => handleSplitRowChange(row.id, 'weight', e.target.value)}
+                          className="flex-1 rounded-md border border-gray-300 shadow-sm p-2 text-sm font-semibold"
+                          placeholder="0.0"
+                        />
+                        {remainingSplitWeight > 0 && !row.weight && (
+                          <button
+                            type="button"
+                            onClick={() => handleFillRemaining(row.id)}
+                            className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition font-semibold cursor-pointer whitespace-nowrap"
+                            title="Заполнить оставшийся вес"
+                          >
+                            Остаток
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Дата изготовления</label>
+                      <input
+                        type="date"
+                        value={row.date}
+                        onChange={(e) => handleSplitRowChange(row.id, 'date', e.target.value)}
+                        className="w-full rounded-md border border-gray-300 shadow-sm p-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={handleAddSplitRow}
+                className="w-full py-2.5 border-2 border-dashed border-slate-300 text-slate-600 rounded-lg font-medium text-sm hover:bg-slate-100 hover:border-slate-400 transition-all flex justify-center items-center gap-2 cursor-pointer"
+              >
+                <Plus size={16} />
+                Добавить партию с другой датой
+              </button>
+            </div>
+
+            {/* Нижняя панель */}
+            <div className="p-5 border-t bg-slate-50 space-y-3">
+              {/* Индикатор остатка */}
+              <div className={`flex justify-between items-center text-sm font-semibold rounded-lg p-3 ${
+                remainingSplitWeight === 0 && totalSplitWeight > 0
+                  ? 'bg-green-50 border border-green-200 text-green-800'
+                  : remainingSplitWeight < 0
+                    ? 'bg-red-50 border border-red-200 text-red-800'
+                    : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
+              }`}>
+                <span>Нераспределенный остаток:</span>
+                <span className="text-base font-extrabold">
+                  {remainingSplitWeight.toLocaleString()} кг
+                </span>
+              </div>
+
+              {remainingSplitWeight < 0 && (
+                <div className="flex items-center gap-2 text-red-700 text-xs">
+                  <AlertCircle size={14} />
+                  <span>Сумма весов превышает общий вес по накладной</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSplitModalOpen(false)}
+                  className="px-4 py-2 border rounded-md hover:bg-gray-100 text-gray-700 font-medium transition cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSplit}
+                  disabled={remainingSplitWeight !== 0 || totalSplitWeight === 0}
+                  className={`px-5 py-2.5 rounded-lg font-bold text-sm shadow-md flex items-center gap-2 transition cursor-pointer ${
+                    remainingSplitWeight === 0 && totalSplitWeight > 0
+                      ? 'bg-green-600 text-white hover:bg-green-700'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  <CheckCircle2 size={18} />
+                  Подтвердить разбиение ({splitRows.filter(r => parseFloat(r.weight) > 0).length} партий)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
