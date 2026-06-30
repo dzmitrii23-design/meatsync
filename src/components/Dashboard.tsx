@@ -204,7 +204,7 @@ export function Dashboard({ batches, products, locations }: Props) {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Общий остаток</p>
-                      <p className="text-lg font-black text-slate-900">{item.totalKg.toLocaleString()} кг</p>
+                      <p className="text-lg font-black text-slate-900">{item.totalKg.toLocaleString()} {item.product.unit || 'кг'}</p>
                     </div>
                   </div>
 
@@ -227,7 +227,7 @@ export function Dashboard({ batches, products, locations }: Props) {
                             )}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            <span className="font-extrabold text-slate-900">{b.quantityKg.toLocaleString()} кг</span>
+                            <span className="font-extrabold text-slate-900">{b.quantityKg.toLocaleString()} {item.product.unit || 'кг'}</span>
                             <span className={`font-semibold ${
                               days < 0
                                 ? 'text-red-600'
@@ -277,7 +277,7 @@ export function Dashboard({ batches, products, locations }: Props) {
                 return (
                   <div key={b.id} className={`p-3 rounded-md border ${isCritical ? 'bg-red-50 border-red-200' : 'bg-orange-50 border-orange-200'}`}>
                     <p className={`font-medium ${isCritical ? 'text-red-800' : 'text-orange-800'}`}>
-                      {prod?.name} ({b.quantityKg} кг)
+                      {prod?.name} ({b.quantityKg} {prod?.unit || 'кг'})
                     </p>
                     <div className="text-sm mt-1 flex justify-between">
                       <span className="text-gray-600">{loc?.name}</span>
