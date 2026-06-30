@@ -225,6 +225,120 @@ export function useAppStore() {
     saveState(state);
   }, [state]);
 
+  // Однократная миграция для слияния существующих дубликатов партий по дате изготовления
+  useEffect(() => {
+    if (loading) return;
+
+    const migrationKey = 'meat_sync_migration_merged_duplicates_v3';
+    if (localStorage.getItem(migrationKey)) return;
+
+    async function migrate() {
+      console.log('Running one-time batches merge migration...');
+      
+      const mergedBatches: Batch[] = [];
+      const batchesToDelete: string[] = [];
+      const batchIdMapping: Record<string, string> = {}; // oldId -> mergedId
+
+      // Группируем партии по productId + locationId + день изготовления (manufacturedAt || receivedAt)
+      const groups: Record<string, Batch[]> = {};
+      state.batches.forEach(b => {
+        const datePart = (b.manufacturedAt || b.receivedAt).split('T')[0];
+        const key = `${b.productId}_${b.locationId}_${datePart}`;
+        if (!groups[key]) {
+          groups[key] = [];
+        }
+        groups[key].push(b);
+      });
+
+      let hasDuplicates = false;
+      Object.keys(groups).forEach(key => {
+        const list = groups[key];
+        if (list.length > 1) {
+          hasDuplicates = true;
+          const target = { ...list[0] };
+          let totalQty = target.quantityKg;
+          let totalInitialQty = target.initialQuantityKg;
+
+          for (let i = 1; i < list.length; i++) {
+            const duplicate = list[i];
+            totalQty += duplicate.quantityKg;
+            totalInitialQty += duplicate.initialQuantityKg;
+            batchesToDelete.push(duplicate.id);
+            batchIdMapping[duplicate.id] = target.id;
+          }
+
+          target.quantityKg = totalQty;
+          target.initialQuantityKg = totalInitialQty;
+          mergedBatches.push(target);
+        }
+      });
+
+      if (!hasDuplicates) {
+        localStorage.setItem(migrationKey, 'true');
+        return;
+      }
+
+      // Обновляем список партий в стейте (удаляем лишние, обновляем целевые)
+      const newBatches = state.batches
+        .filter(b => !batchesToDelete.includes(b.id))
+        .map(b => {
+          const merged = mergedBatches.find(mb => mb.id === b.id);
+          return merged ? merged : b;
+        });
+
+      // Перенаправляем транзакции со старых ID партий на новые объединенные ID
+      const newTransactions = state.transactions.map(t => {
+        if (t.batchId && batchIdMapping[t.batchId]) {
+          return { ...t, batchId: batchIdMapping[t.batchId] };
+        }
+        return t;
+      });
+
+      // Синхронизация с базой Supabase (если онлайн)
+      if (isOnline) {
+        try {
+          // 1. Обновляем объединенные партии в Supabase
+          for (const mb of mergedBatches) {
+            await supabase
+              .from('batches')
+              .update({ quantityKg: mb.quantityKg, initialQuantityKg: mb.initialQuantityKg })
+              .eq('id', mb.id);
+          }
+          // 2. Обновляем транзакции в Supabase
+          for (const t of newTransactions) {
+            if (t.batchId && Object.values(batchIdMapping).includes(t.batchId)) {
+              await supabase
+                .from('transactions')
+                .update({ batchId: t.batchId })
+                .eq('id', t.id);
+            }
+          }
+          // 3. Delete duplicates from Supabase
+          if (batchesToDelete.length > 0) {
+            await supabase
+              .from('batches')
+              .delete()
+              .in('id', batchesToDelete);
+          }
+        } catch (err) {
+          console.error('Failed to sync batch migration with Supabase:', err);
+          return; // Прерываем, чтобы не ставить флаг выполненной миграции
+        }
+      }
+
+      setState(prev => ({
+        ...prev,
+        batches: newBatches,
+        transactions: newTransactions
+      }));
+
+      localStorage.setItem(migrationKey, 'true');
+      console.log('One-time batches merge migration completed successfully.');
+    }
+
+    migrate();
+  }, [loading]);
+
   const addProduct = async (product: Omit<Product, 'id'>) => {
     const auto = autoDetectAttributes(product);
     const rawMaterial = product.rawMaterial || auto.rawMaterial;
@@ -377,7 +491,7 @@ export function useAppStore() {
     const existingBatch = state.batches.find(b => 
       b.productId === batchData.productId &&
       b.locationId === batchData.locationId &&
-      b.receivedAt.split('T')[0] === batchData.receivedAt.split('T')[0]
+      (b.manufacturedAt || b.receivedAt).split('T')[0] === (batchData.manufacturedAt || batchData.receivedAt).split('T')[0]
     );
 
     if (existingBatch) {

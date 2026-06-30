@@ -366,5 +366,44 @@ describe('utils.ts tests', () => {
         expect(deleteRes.error).toContain('с этой партии уже списано');
       });
     });
+
+    it('should merge two IN transactions with same product, location, and manufacturedAt but different receivedAt', async () => {
+      const { result } = renderHook(() => useAppStore());
+      const mfgDate = new Date('2035-10-10T10:00:00.000Z').toISOString();
+      const recDate1 = new Date('2035-10-10T12:00:00.000Z').toISOString();
+      const recDate2 = new Date('2035-10-11T09:00:00.000Z').toISOString();
+
+      // 1. Создаем первый приход 150 кг
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p7',
+          locationId: 'loc_main_1',
+          quantityKg: 150,
+          receivedAt: recDate1,
+          manufacturedAt: mfgDate,
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      // 2. Создаем второй приход 100 кг (другая дата прихода, но та же дата изготовления)
+      await act(async () => {
+        await result.current.processIncome({
+          productId: 'p7',
+          locationId: 'loc_main_1',
+          quantityKg: 100,
+          receivedAt: recDate2,
+          manufacturedAt: mfgDate,
+          expiresAt: new Date().toISOString(),
+        });
+      });
+
+      // 3. Они должны слиться в одну партию
+      const tx1 = result.current.state.transactions[1];
+      const tx2 = result.current.state.transactions[0];
+      expect(tx1.batchId).toBe(tx2.batchId);
+
+      const batch = result.current.state.batches.find(b => b.id === tx1.batchId);
+      expect(batch?.quantityKg).toBe(250);
+    });
   });
 });

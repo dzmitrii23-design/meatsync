@@ -84,7 +84,13 @@ export function Dashboard({ batches, products, locations }: Props) {
 
   // Aggregate by product
   const stockByProduct = filteredProducts.map(p => {
-    const productBatches = normalBatches.filter(b => b.productId === p.id);
+    const productBatches = normalBatches
+      .filter(b => b.productId === p.id)
+      .sort((a, b) => {
+        const dateA = new Date(a.manufacturedAt || a.receivedAt).getTime();
+        const dateB = new Date(b.manufacturedAt || b.receivedAt).getTime();
+        return dateA - dateB;
+      });
     const totalKg = productBatches.reduce((sum, b) => sum + b.quantityKg, 0);
     // Ближайшая дата «Годен до» среди всех партий этого товара
     const nearestExpiry = productBatches.length > 0
