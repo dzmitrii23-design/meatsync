@@ -86,7 +86,15 @@ export function Dashboard({ batches, products, locations }: Props) {
   const stockByProduct = filteredProducts.map(p => {
     const productBatches = normalBatches.filter(b => b.productId === p.id);
     const totalKg = productBatches.reduce((sum, b) => sum + b.quantityKg, 0);
-    return { product: p, totalKg };
+    // Ближайшая дата «Годен до» среди всех партий этого товара
+    const nearestExpiry = productBatches.length > 0
+      ? productBatches.reduce((earliest, b) => {
+          const d = new Date(b.expiresAt);
+          return d < earliest ? d : earliest;
+        }, new Date(productBatches[0].expiresAt))
+      : null;
+    const daysLeft = nearestExpiry ? differenceInDays(nearestExpiry, now) : null;
+    return { product: p, totalKg, nearestExpiry, daysLeft };
   }).filter(item => item.totalKg > 0).sort((a, b) => b.totalKg - a.totalKg);
 
   return (
@@ -185,6 +193,26 @@ export function Dashboard({ batches, products, locations }: Props) {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-lg font-bold text-slate-900">{item.totalKg.toLocaleString()} кг</p>
+                    {item.nearestExpiry && item.daysLeft !== null && (
+                      <p className={`text-xs font-semibold mt-1 ${
+                        item.daysLeft < 0
+                          ? 'text-red-600'
+                          : item.daysLeft <= (item.product.notifyBeforeDays ?? 14)
+                            ? 'text-orange-600'
+                            : 'text-green-600'
+                      }`}>
+                        Годен до: {format(item.nearestExpiry, 'dd.MM.yyyy')}
+                        <span className={`ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          item.daysLeft < 0
+                            ? 'bg-red-100 text-red-700'
+                            : item.daysLeft <= (item.product.notifyBeforeDays ?? 14)
+                              ? 'bg-orange-100 text-orange-700'
+                              : 'bg-green-100 text-green-700'
+                        }`}>
+                          {item.daysLeft < 0 ? 'ПРОСРОК' : `${item.daysLeft} дн`}
+                        </span>
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
