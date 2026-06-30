@@ -94,7 +94,7 @@ export function Dashboard({ batches, products, locations }: Props) {
         }, new Date(productBatches[0].expiresAt))
       : null;
     const daysLeft = nearestExpiry ? differenceInDays(nearestExpiry, now) : null;
-    return { product: p, totalKg, nearestExpiry, daysLeft };
+    return { product: p, totalKg, nearestExpiry, daysLeft, batches: productBatches };
   }).filter(item => item.totalKg > 0).sort((a, b) => b.totalKg - a.totalKg);
 
   return (
@@ -177,42 +177,70 @@ export function Dashboard({ batches, products, locations }: Props) {
 
             <div className="space-y-4">
               {stockByProduct.map(item => (
-                <div key={item.product.id} className="flex justify-between items-center p-4 border rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                  <div className="flex items-start gap-3">
-                    <Package className="text-slate-400 mt-1 shrink-0" size={20} />
-                    <div>
-                      <p className="font-semibold text-gray-950 font-sans">{item.product.name}</p>
-                      <div className="text-xs text-gray-500 font-mono mt-0.5 space-y-1">
-                        <div>Артикул: <span className="font-bold text-slate-700">{item.product.sku}</span> | Состояние: <span className={`font-semibold ${item.product.category === 'Охлажденное' ? 'text-blue-500' : 'text-slate-600'}`}>{item.product.category || 'Замороженное'}</span></div>
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          {getMaterialBadge(item.product.rawMaterial)}
-                          {getPackagingBadge(item.product.packagingType)}
+                <div key={item.product.id} className="p-4 border rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-3">
+                  {/* Заголовок карточки товара с общим остатком */}
+                  <div className="flex justify-between items-start pb-2 border-b border-slate-200/60">
+                    <div className="flex items-start gap-3">
+                      <Package className="text-slate-400 mt-1 shrink-0" size={20} />
+                      <div>
+                        <p className="font-semibold text-gray-950 font-sans">{item.product.name}</p>
+                        <div className="text-xs text-gray-500 font-mono mt-0.5 space-y-1">
+                          <div>Артикул: <span className="font-bold text-slate-700">{item.product.sku}</span> | Состояние: <span className={`font-semibold ${item.product.category === 'Охлажденное' ? 'text-blue-500' : 'text-slate-600'}`}>{item.product.category || 'Замороженное'}</span></div>
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {getMaterialBadge(item.product.rawMaterial)}
+                            {getPackagingBadge(item.product.packagingType)}
+                          </div>
                         </div>
                       </div>
                     </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Общий остаток</p>
+                      <p className="text-lg font-black text-slate-900">{item.totalKg.toLocaleString()} кг</p>
+                    </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-lg font-bold text-slate-900">{item.totalKg.toLocaleString()} кг</p>
-                    {item.nearestExpiry && item.daysLeft !== null && (
-                      <p className={`text-xs font-semibold mt-1 ${
-                        item.daysLeft < 0
-                          ? 'text-red-600'
-                          : item.daysLeft <= (item.product.notifyBeforeDays ?? 14)
-                            ? 'text-orange-600'
-                            : 'text-green-600'
-                      }`}>
-                        Годен до: {format(item.nearestExpiry, 'dd.MM.yyyy')}
-                        <span className={`ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          item.daysLeft < 0
-                            ? 'bg-red-100 text-red-700'
-                            : item.daysLeft <= (item.product.notifyBeforeDays ?? 14)
-                              ? 'bg-orange-100 text-orange-700'
-                              : 'bg-green-100 text-green-700'
-                        }`}>
-                          {item.daysLeft < 0 ? 'ПРОСРОК' : `${item.daysLeft} дн`}
-                        </span>
-                      </p>
-                    )}
+
+                  {/* Список конкретных партий по складам */}
+                  <div className="pl-6 space-y-2">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Разбивка по партиям:</p>
+                    {item.batches.map(b => {
+                      const loc = locations.find(l => l.id === b.locationId);
+                      const expires = new Date(b.expiresAt);
+                      const days = differenceInDays(expires, now);
+                      return (
+                        <div key={b.id} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm text-xs transition hover:border-slate-300">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-medium text-slate-500">Склад:</span>
+                            <span className="font-bold text-slate-800">{loc?.name || 'Неизвестно'}</span>
+                            {b.manufacturedAt && (
+                              <span className="text-[10px] text-gray-400 font-mono">
+                                (изг. {format(new Date(b.manufacturedAt), 'dd.MM.yyyy')})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="font-extrabold text-slate-900">{b.quantityKg.toLocaleString()} кг</span>
+                            <span className={`font-semibold ${
+                              days < 0
+                                ? 'text-red-600'
+                                : days <= (item.product.notifyBeforeDays ?? 14)
+                                  ? 'text-orange-600'
+                                  : 'text-green-600'
+                            }`}>
+                              Годен до: {format(expires, 'dd.MM.yyyy')}
+                              <span className={`ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                days < 0
+                                  ? 'bg-red-100 text-red-700'
+                                  : days <= (item.product.notifyBeforeDays ?? 14)
+                                    ? 'bg-orange-100 text-orange-700'
+                                    : 'bg-green-100 text-green-700'
+                              }`}>
+                                {days < 0 ? 'ПРОСРОК' : `${days} дн`}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
