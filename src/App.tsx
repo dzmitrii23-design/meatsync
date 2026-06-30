@@ -19,6 +19,7 @@ export default function App() {
     addProduct, 
     updateProduct, 
     deleteProduct,
+    clearProducts,
     importManyProducts,
     processIncome,
     processOutcome,
@@ -214,6 +215,7 @@ export default function App() {
               onAdd={addProduct}
               onUpdate={updateProduct}
               onDelete={deleteProduct}
+              onClearAll={clearProducts}
               onImportMany={importManyProducts}
               buyers={state.buyers}
               onAddBuyer={addBuyer}

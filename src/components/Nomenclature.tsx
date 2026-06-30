@@ -49,6 +49,7 @@ interface Props {
   onAdd: (product: Omit<Product, 'id'>) => void;
   onUpdate: (id: string, updates: Partial<Omit<Product, 'id'>>) => void;
   onDelete: (id: string) => void;
+  onClearAll?: () => void;
   onImportMany?: (newProducts: Omit<Product, 'id'>[], action: 'overwrite' | 'preserve') => void;
   buyers?: Buyer[];
   onAddBuyer?: (buyer: Omit<Buyer, 'id'>) => void;
@@ -61,6 +62,7 @@ export function Nomenclature({
   onAdd, 
   onUpdate, 
   onDelete, 
+  onClearAll,
   onImportMany,
   buyers = [],
   onAddBuyer,
@@ -73,6 +75,7 @@ export function Nomenclature({
   const [buyerSearchQuery, setBuyerSearchQuery] = useState('');
   const [confirmDeleteBuyerId, setConfirmDeleteBuyerId] = useState<string | null>(null);
   const [confirmDeleteProductId, setConfirmDeleteProductId] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
   
   const [buyerFormData, setBuyerFormData] = useState({
     name: '',
@@ -428,6 +431,15 @@ export function Nomenclature({
                 <Plus size={18} />
                 <span>Добавить продукцию</span>
               </button>
+              {onClearAll && products.length > 0 && (
+                <button
+                  onClick={() => setConfirmClearAll(true)}
+                  className="flex items-center gap-2 px-4 py-2 border border-red-200 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition font-medium cursor-pointer ml-4"
+                >
+                  <Trash2 size={18} />
+                  <span>Очистить справочник</span>
+                </button>
+              )}
             </>
           ) : (
             <button
@@ -710,6 +722,39 @@ export function Nomenclature({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+
+
+      {/* Clear All Confirmation Modal */}
+      {confirmClearAll && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border max-w-md w-full p-6 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <AlertCircle size={24} />
+              <h3 className="font-bold text-lg">Очистка справочника</h3>
+            </div>
+            <p className="text-gray-700 mb-6">
+              Вы уверены, что хотите удалить ВСЕ {products.length} позиций номенклатуры? Это действие нельзя отменить. (Если есть связанные партии, они могут стать недоступны для корректного отображения).
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmClearAll(false)}
+                className="px-4 py-2 border rounded-md hover:bg-gray-100 text-gray-700 font-medium transition"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => {
+                  onClearAll?.();
+                  setConfirmClearAll(false);
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 font-semibold shadow-sm flex items-center gap-2 transition cursor-pointer"
+              >
+                <Trash2 size={18} />
+                <span>Очистить безвозвратно</span>
+              </button>
             </div>
           </div>
         </div>

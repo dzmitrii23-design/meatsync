@@ -301,6 +301,22 @@ export function useAppStore() {
     }));
   };
 
+  const clearProducts = async () => {
+    if (isOnline) {
+      try {
+        const { error } = await supabase.from('products').delete().neq('id', 'not_a_real_id');
+        if (error) throw error;
+      } catch (err) {
+        console.error('Failed to clear products from Supabase:', err);
+      }
+    }
+
+    setState(prev => ({
+      ...prev,
+      products: [],
+    }));
+  };
+
   const importManyProducts = async (newProducts: Omit<Product, 'id'>[], action: 'overwrite' | 'preserve') => {
     let updatedProductsList: Product[] = [];
     
@@ -1171,6 +1187,7 @@ export function useAppStore() {
     addProduct,
     updateProduct,
     deleteProduct,
+    clearProducts,
     importManyProducts,
     processIncome,
     processOutcome,
