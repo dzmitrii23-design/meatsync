@@ -725,6 +725,7 @@ export function Nomenclature({
             </div>
           </div>
         </div>
+      )}
 
 
       {/* Clear All Confirmation Modal */}
