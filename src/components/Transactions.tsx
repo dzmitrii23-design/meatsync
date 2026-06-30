@@ -676,8 +676,8 @@ function IncomeForm({
                       </button>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
+                  <div className="grid grid-cols-5 gap-3">
+                    <div className="col-span-3">
                       <label className="block text-xs font-medium text-gray-600 mb-1">Вес (кг)</label>
                       <div className="flex gap-1">
                         <input
@@ -705,8 +705,8 @@ function IncomeForm({
                         )}
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Дата изготовления</label>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Дата выработки</label>
                       <input
                         type="date"
                         value={row.date}
