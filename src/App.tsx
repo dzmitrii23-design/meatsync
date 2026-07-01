@@ -16,6 +16,7 @@ export default function App() {
     state, 
     loading,
     isOnline,
+    unsyncedCount,
     addProduct, 
     updateProduct, 
     deleteProduct,
@@ -100,7 +101,13 @@ export default function App() {
             }`}>
               <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
               <span className="text-[9px] font-bold uppercase tracking-wider">
-                {loading ? 'Синхронизация...' : isOnline ? '🛜 Облако (Supabase)' : '💾 Локально'}
+                {loading 
+                  ? 'Синхронизация...' 
+                  : isOnline 
+                    ? '🛜 Облако (Supabase)' 
+                    : unsyncedCount > 0 
+                      ? `💾 Оффлайн (В очереди на отправку: ${unsyncedCount} опер.)` 
+                      : '💾 Локально'}
               </span>
             </div>
           </div>

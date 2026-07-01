@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { AppState, Product, StorageLocation, Transaction, Batch, Buyer } from './types';
 import { generateId, generateProductSku, autoDetectAttributes } from './utils';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
@@ -99,8 +100,7 @@ const defaultState: AppState = {
     { id: 'b_2', productId: 'p8', locationId: 'loc_chilled_1', quantityKg: 10000, initialQuantityKg: 12000, receivedAt: new Date(now - 2*DAY_MS).toISOString(), expiresAt: new Date(now + 13*DAY_MS).toISOString() },
     { id: 'b_3', productId: 'p15', locationId: 'loc_chilled_1', quantityKg: 1500, initialQuantityKg: 2000, receivedAt: new Date(now - 2*DAY_MS).toISOString(), expiresAt: new Date(now + 10*DAY_MS).toISOString() },
     { id: 'b_4', productId: 'p22', locationId: 'loc_reefer_2', quantityKg: 5000, initialQuantityKg: 5000, receivedAt: new Date(now - 170*DAY_MS).toISOString(), expiresAt: new Date(now + 10*DAY_MS).toISOString() },
-    { id: 'b_5', productId: 'p4', locationId: 'loc_chilled_1', quantityKg: 3200, initialQuantityKg: 3200, receivedAt: new Date(now - 10*DAY_MS).toISOString(), expiresAt: new Date(now + 5*DAY_MS).toISOString() },
-    { id: 'b_shock_demo_1', productId: 'p3', locationId: 'loc_shock_1', quantityKg: 7500, initialQuantityKg: 7500, receivedAt: new Date(now - 1*DAY_MS).toISOString(), expiresAt: new Date(now + 179*DAY_MS).toISOString() }
+    { id: 'b_5', productId: 'p4', locationId: 'loc_chilled_1', quantityKg: 3200, initialQuantityKg: 3200, receivedAt: new Date(now - 10*DAY_MS).toISOString(), expiresAt: new Date(now + 5*DAY_MS).toISOString() }
   ],
   transactions: [],
   buyers: initialBuyers,
@@ -127,21 +127,6 @@ const loadState = (): AppState => {
               return { ...b, locationId: 'loc_shock_1' };
             }
             return b;
-          });
-        }
-      }
-      // Ensure there is at least one batch in loc_shock_1 for quick demo of movement from shock
-      if (Array.isArray(parsed.batches)) {
-        const hasShockBatch = parsed.batches.some((b: any) => b.locationId === 'loc_shock_1');
-        if (!hasShockBatch) {
-          parsed.batches.push({
-            id: 'b_shock_demo_1',
-            productId: 'p3', // Лопатка свиная бк (ЗАМ)
-            locationId: 'loc_shock_1',
-            quantityKg: 7500,
-            initialQuantityKg: 7500,
-            receivedAt: new Date(Date.now() - 1*86400000).toISOString(),
-            expiresAt: new Date(Date.now() + 179*86400000).toISOString()
           });
         }
       }
@@ -301,116 +286,69 @@ export async function syncLocalOnlyData(
 
 export function useAppStore() {
   const [state, setState] = useState<AppState>(loadState());
-  const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
+  const [unsyncedCount, setUnsyncedCount] = useState(0);
 
-  // Синхронизация данных из Supabase на старте
+  // Загрузка состояния с локального сервера на старте
   useEffect(() => {
-    if (!isSupabaseConfigured) {
-      setLoading(false);
-      setIsOnline(false);
-      return;
-    }
-
-    async function fetchFromSupabase() {
-      const local = loadState();
+    async function fetchFromLocalServer() {
       try {
         setLoading(true);
-        const [
-          { data: dbProducts, error: prodErr },
-          { data: dbLocations, error: locErr },
-          { data: dbBatches, error: batErr },
-          { data: dbTransactions, error: txErr },
-          { data: dbBuyers, error: buyErr }
-        ] = await Promise.all([
-          supabase.from('products').select('*'),
-          supabase.from('locations').select('*'),
-          supabase.from('batches').select('*'),
-          supabase.from('transactions').select('*').order('date', { ascending: false }),
-          supabase.from('buyers').select('*')
-        ]);
-
-        if (prodErr || locErr || batErr || txErr || buyErr) {
-          throw new Error('Supabase fetch error');
-        }
-
-        const dbData = {
-          products: dbProducts || [],
-          locations: dbLocations || [],
-          batches: dbBatches || [],
-          transactions: dbTransactions || [],
-          buyers: dbBuyers || []
-        };
-
-        const merged = mergeLocalAndDbStates(local, dbData);
-        setState(merged);
-        setIsOnline(true);
-
-        // В фоне синхронизируем локальные изменения с Supabase
-        syncLocalOnlyData(local, dbData);
+        const res = await axios.get('http://localhost:5000/api/state');
+        const { state: serverState, isOnline: serverOnline, unsyncedCount: count } = res.data;
+        setState(serverState);
+        setIsOnline(serverOnline);
+        setUnsyncedCount(count);
       } catch (err) {
-        console.error('Supabase connection failed, falling back to localStorage:', err);
-        setIsOnline(false);
+        console.warn('Локальный сервер недоступен, загружаем резервную копию из localStorage:', err.message || err);
+        const local = loadState();
         setState(local);
+        setIsOnline(false);
+        setUnsyncedCount(0);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchFromSupabase();
+    fetchFromLocalServer();
   }, []);
 
-  // Автосинхронизация при переходе в онлайн
+  // Периодическое обновление статуса синхронизации
   useEffect(() => {
-    const handleOnline = async () => {
-      if (!isSupabaseConfigured) return;
-      console.log('Network is back online, triggering sync...');
-      setIsOnline(true);
-
+    const interval = setInterval(async () => {
       try {
-        const [
-          { data: dbProducts },
-          { data: dbBuyers },
-          { data: dbBatches },
-          { data: dbTransactions }
-        ] = await Promise.all([
-          supabase.from('products').select('*'),
-          supabase.from('buyers').select('*'),
-          supabase.from('batches').select('*'),
-          supabase.from('transactions').select('*')
-        ]);
-
-        if (dbProducts && dbBuyers && dbBatches && dbTransactions) {
-          const dbData = {
-            products: dbProducts || [],
-            buyers: dbBuyers || [],
-            batches: dbBatches || [],
-            transactions: dbTransactions || []
-          };
-          await syncLocalOnlyData(state, dbData);
-        }
+        const res = await axios.get('http://localhost:5000/api/sync-status');
+        const { isOnline: serverOnline, unsyncedCount: count } = res.data;
+        setIsOnline(serverOnline);
+        setUnsyncedCount(count);
       } catch (err) {
-        console.error('Failed to sync on network recovery:', err);
+        setIsOnline(false);
       }
-    };
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
-    const handleOffline = () => {
-      setIsOnline(false);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [state]);
-
-  // Кэширование состояния в localStorage для оффлайн работы
+  // Сохранение в резервное локальное хранилище + отправка на локальный сервер при любых изменениях
   useEffect(() => {
     saveState(state);
-  }, [state]);
+
+    async function saveToLocalServer() {
+      try {
+        const res = await axios.post('http://localhost:5000/api/state', { state });
+        const { isOnline: serverOnline, unsyncedCount: count } = res.data;
+        setIsOnline(serverOnline);
+        setUnsyncedCount(count);
+      } catch (err) {
+        console.warn('Не удалось отправить состояние на локальный сервер:', err.message || err);
+        setIsOnline(false);
+      }
+    }
+
+    if (!loading) {
+      saveToLocalServer();
+    }
+  }, [state, loading]);
 
   // Однократная миграция для слияния существующих дубликатов партий по дате изготовления
   useEffect(() => {
@@ -1565,6 +1503,7 @@ export function useAppStore() {
     state,
     loading,
     isOnline,
+    unsyncedCount,
     addProduct,
     updateProduct,
     deleteProduct,
