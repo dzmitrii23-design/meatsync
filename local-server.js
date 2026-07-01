@@ -57,6 +57,28 @@ async function writeJsonFile(filePath, data) {
   }
 }
 
+// Постраничная загрузка всех записей из таблицы Supabase (обход лимита в 1000 записей)
+async function fetchAllFromTable(tableName, orderConfig = null) {
+  let allData = [];
+  let from = 0;
+  const step = 1000;
+  
+  while (true) {
+    let query = supabase.from(tableName).select('*').range(from, from + step - 1);
+    if (orderConfig) {
+      query = query.order(orderConfig.column, { ascending: orderConfig.ascending });
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    
+    allData = allData.concat(data);
+    if (data.length < step) break;
+    from += step;
+  }
+  return allData;
+}
+
 // Функция слияния локального состояния и Supabase
 function mergeLocalAndDbStates(local, db) {
   const products = [...db.products];
@@ -213,22 +235,18 @@ async function syncWithCloud() {
   try {
     // 1. Скачиваем актуальное состояние из Supabase (заменяет пинг)
     const [
-      { data: dbProducts, error: pErr },
-      { data: dbLocations, error: lErr },
-      { data: dbBatches, error: baErr },
-      { data: dbTransactions, error: tErr },
-      { data: dbBuyers, error: buErr }
+      dbProducts,
+      dbLocations,
+      dbBatches,
+      dbTransactions,
+      dbBuyers
     ] = await Promise.all([
-      supabase.from('products').select('*'),
-      supabase.from('locations').select('*'),
-      supabase.from('batches').select('*'),
-      supabase.from('transactions').select('*').order('date', { ascending: false }),
-      supabase.from('buyers').select('*')
+      fetchAllFromTable('products'),
+      fetchAllFromTable('locations'),
+      fetchAllFromTable('batches'),
+      fetchAllFromTable('transactions', { column: 'date', ascending: false }),
+      fetchAllFromTable('buyers')
     ]);
-
-    if (pErr || lErr || baErr || tErr || buErr) {
-      throw new Error(`Supabase fetch failed: ${pErr?.message || lErr?.message || baErr?.message || tErr?.message || buErr?.message}`);
-    }
 
     isOnline = true;
 
@@ -359,33 +377,31 @@ async function syncWithCloud() {
 
     // Скачиваем актуальное состояние для перезаписи
     const [
-      { data: dbProducts2, error: pErr2 },
-      { data: dbLocations2, error: lErr2 },
-      { data: dbBatches2, error: baErr2 },
-      { data: dbTransactions2, error: tErr2 },
-      { data: dbBuyers2, error: buErr2 }
+      dbProducts2,
+      dbLocations2,
+      dbBatches2,
+      dbTransactions2,
+      dbBuyers2
     ] = await Promise.all([
-      supabase.from('products').select('*'),
-      supabase.from('locations').select('*'),
-      supabase.from('batches').select('*'),
-      supabase.from('transactions').select('*').order('date', { ascending: false }),
-      supabase.from('buyers').select('*')
+      fetchAllFromTable('products'),
+      fetchAllFromTable('locations'),
+      fetchAllFromTable('batches'),
+      fetchAllFromTable('transactions', { column: 'date', ascending: false }),
+      fetchAllFromTable('buyers')
     ]);
 
-    if (!pErr2 && !lErr2 && !baErr2 && !tErr2 && !buErr2) {
-      const dbData2 = {
-        products: dbProducts2 || [],
-        locations: dbLocations2 || [],
-        batches: dbBatches2 || [],
-        transactions: dbTransactions2 || [],
-        buyers: dbBuyers2 || []
-      };
+    const dbData2 = {
+      products: dbProducts2 || [],
+      locations: dbLocations2 || [],
+      batches: dbBatches2 || [],
+      transactions: dbTransactions2 || [],
+      buyers: dbBuyers2 || []
+    };
 
-      // Синхронизируем локальный и облачный файлы
-      await writeJsonFile(LOCAL_DB_PATH, dbData2);
-      await writeJsonFile(LAST_SYNCED_PATH, dbData2);
-      console.log(`[Sync] Фоновая синхронизация успешно завершена.`);
-    }
+    // Синхронизируем локальный и облачный файлы
+    await writeJsonFile(LOCAL_DB_PATH, dbData2);
+    await writeJsonFile(LAST_SYNCED_PATH, dbData2);
+    console.log(`[Sync] Фоновая синхронизация успешно завершена.`);
   } catch (err) {
     console.warn(`[Sync] Не удалось выполнить синхронизацию (возможно, нет интернета):`, err.message || err);
     isOnline = false;
@@ -412,23 +428,18 @@ app.get('/api/state', async (req, res) => {
 
   try {
     const [
-      { data: dbProducts, error: pErr },
-      { data: dbLocations, error: lErr },
-      { data: dbBatches, error: baErr },
-      { data: dbTransactions, error: tErr },
-      { data: dbBuyers, error: buErr }
+      dbProducts,
+      dbLocations,
+      dbBatches,
+      dbTransactions,
+      dbBuyers
     ] = await Promise.all([
-      supabase.from('products').select('*'),
-      supabase.from('locations').select('*'),
-      supabase.from('batches').select('*'),
-      supabase.from('transactions').select('*').order('date', { ascending: false }),
-      supabase.from('buyers').select('*')
+      fetchAllFromTable('products'),
+      fetchAllFromTable('locations'),
+      fetchAllFromTable('batches'),
+      fetchAllFromTable('transactions', { column: 'date', ascending: false }),
+      fetchAllFromTable('buyers')
     ]);
-
-    if (pErr || lErr || baErr || tErr || buErr) {
-      console.error('[Supabase Error Details]:', { pErr, lErr, baErr, tErr, buErr });
-      throw new Error(`Supabase fetch failed: ${pErr?.message || lErr?.message || baErr?.message || tErr?.message || buErr?.message}`);
-    }
 
     isOnline = true;
     const dbData = {
