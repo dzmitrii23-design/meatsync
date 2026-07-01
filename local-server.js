@@ -194,7 +194,7 @@ async function syncWithCloud() {
     const newProducts = local.products.filter(lp => !lastSynced.products.some(sp => sp.id === lp.id));
     if (newProducts.length > 0) {
       console.log(`[Sync] Отправка ${newProducts.length} новых товаров в Supabase...`);
-      const { error } = await supabase.from('products').insert(newProducts);
+      const { error } = await supabase.from('products').upsert(newProducts);
       if (error) throw error;
     }
     const deletedProducts = lastSynced.products.filter(sp => !local.products.some(lp => lp.id === sp.id));
@@ -208,7 +208,7 @@ async function syncWithCloud() {
     const newBuyers = local.buyers.filter(lb => !lastSynced.buyers.some(sb => sb.id === lb.id));
     if (newBuyers.length > 0) {
       console.log(`[Sync] Отправка ${newBuyers.length} новых покупателей в Supabase...`);
-      const { error } = await supabase.from('buyers').insert(newBuyers);
+      const { error } = await supabase.from('buyers').upsert(newBuyers);
       if (error) throw error;
     }
     const deletedBuyers = lastSynced.buyers.filter(sb => !local.buyers.some(lb => lb.id === sb.id));
@@ -222,7 +222,7 @@ async function syncWithCloud() {
     const newBatches = local.batches.filter(lb => !lastSynced.batches.some(sb => sb.id === lb.id));
     if (newBatches.length > 0) {
       console.log(`[Sync] Отправка ${newBatches.length} новых партий в Supabase...`);
-      const { error } = await supabase.from('batches').insert(newBatches);
+      const { error } = await supabase.from('batches').upsert(newBatches);
       if (error) throw error;
     }
     const modifiedBatches = local.batches.filter(lb => {
@@ -251,7 +251,7 @@ async function syncWithCloud() {
     const newTransactions = local.transactions.filter(lt => !lastSynced.transactions.some(st => st.id === lt.id));
     if (newTransactions.length > 0) {
       console.log(`[Sync] Отправка ${newTransactions.length} новых транзакций в Supabase...`);
-      const { error } = await supabase.from('transactions').insert(newTransactions);
+      const { error } = await supabase.from('transactions').upsert(newTransactions);
       if (error) throw error;
     }
     const modifiedTransactions = local.transactions.filter(ltx => {
