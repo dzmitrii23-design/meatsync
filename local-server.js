@@ -211,112 +211,7 @@ async function syncWithCloud() {
   isSyncing = true;
 
   try {
-    // 1. Проверяем доступность Supabase простым запросом
-    const { error: pingError } = await supabase.from('locations').select('id').limit(1);
-    if (pingError) throw pingError;
-    isOnline = true;
-
-    // Читаем текущее состояние и последнее синхронизированное
-    const local = await readJsonFile(LOCAL_DB_PATH);
-    const lastSynced = await readJsonFile(LAST_SYNCED_PATH);
-
-    // --- ПРОДУКТЫ ---
-    const newProducts = local.products.filter(lp => !lastSynced.products.some(sp => sp.id === lp.id));
-    if (newProducts.length > 0) {
-      console.log(`[Sync] Отправка ${newProducts.length} новых товаров в Supabase...`);
-      const { error } = await supabase.from('products').upsert(newProducts);
-      if (error) throw error;
-    }
-    const deletedProducts = lastSynced.products.filter(sp => !local.products.some(lp => lp.id === sp.id));
-    if (deletedProducts.length > 0) {
-      console.log(`[Sync] Удаление ${deletedProducts.length} товаров из Supabase...`);
-      const { error } = await supabase.from('products').delete().in('id', deletedProducts.map(p => p.id));
-      if (error) throw error;
-    }
-
-    // --- ПОКУПАТЕЛИ ---
-    const newBuyers = local.buyers.filter(lb => !lastSynced.buyers.some(sb => sb.id === lb.id));
-    if (newBuyers.length > 0) {
-      console.log(`[Sync] Отправка ${newBuyers.length} новых покупателей в Supabase...`);
-      const { error } = await supabase.from('buyers').upsert(newBuyers);
-      if (error) throw error;
-    }
-    const deletedBuyers = lastSynced.buyers.filter(sb => !local.buyers.some(lb => lb.id === sb.id));
-    if (deletedBuyers.length > 0) {
-      console.log(`[Sync] Удаление ${deletedBuyers.length} покупателей из Supabase...`);
-      const { error } = await supabase.from('buyers').delete().in('id', deletedBuyers.map(b => b.id));
-      if (error) throw error;
-    }
-
-    // --- ПАРТИИ ---
-    const newBatches = local.batches.filter(lb => !lastSynced.batches.some(sb => sb.id === lb.id));
-    if (newBatches.length > 0) {
-      console.log(`[Sync] Отправка ${newBatches.length} новых партий в Supabase...`);
-      const { error } = await supabase.from('batches').upsert(newBatches);
-      if (error) throw error;
-    }
-    const modifiedBatches = local.batches.filter(lb => {
-      const sb = lastSynced.batches.find(sb => sb.id === lb.id);
-      return sb && (sb.quantityKg !== lb.quantityKg || sb.initialQuantityKg !== lb.initialQuantityKg || sb.locationId !== lb.locationId);
-    });
-    if (modifiedBatches.length > 0) {
-      console.log(`[Sync] Обновление ${modifiedBatches.length} измененных партий в Supabase...`);
-      for (const mb of modifiedBatches) {
-        const { error } = await supabase.from('batches').update({
-          quantityKg: mb.quantityKg,
-          initialQuantityKg: mb.initialQuantityKg,
-          locationId: mb.locationId
-        }).eq('id', mb.id);
-        if (error) throw error;
-      }
-    }
-    const deletedBatches = lastSynced.batches.filter(sb => !local.batches.some(lb => lb.id === sb.id));
-    if (deletedBatches.length > 0) {
-      console.log(`[Sync] Удаление ${deletedBatches.length} партий из Supabase...`);
-      const { error } = await supabase.from('batches').delete().in('id', deletedBatches.map(b => b.id));
-      if (error) throw error;
-    }
-
-    // --- ТРАНЗАКЦИИ ---
-    const newTransactions = local.transactions.filter(lt => !lastSynced.transactions.some(st => st.id === lt.id));
-    if (newTransactions.length > 0) {
-      console.log(`[Sync] Отправка ${newTransactions.length} новых транзакций в Supabase...`);
-      const { error } = await supabase.from('transactions').upsert(newTransactions);
-      if (error) throw error;
-    }
-    const modifiedTransactions = local.transactions.filter(ltx => {
-      const stx = lastSynced.transactions.find(st => st.id === ltx.id);
-      return stx && (
-        stx.quantityKg !== ltx.quantityKg ||
-        stx.date !== ltx.date ||
-        stx.notes !== ltx.notes ||
-        stx.buyerId !== ltx.buyerId ||
-        stx.wasteReason !== ltx.wasteReason ||
-        stx.outcomeType !== ltx.outcomeType
-      );
-    });
-    if (modifiedTransactions.length > 0) {
-      console.log(`[Sync] Обновление ${modifiedTransactions.length} измененных транзакций в Supabase...`);
-      for (const mt of modifiedTransactions) {
-        const { error } = await supabase.from('transactions').update({
-          quantityKg: mt.quantityKg,
-          date: mt.date,
-          notes: mt.notes,
-          buyerId: mt.buyerId,
-          wasteReason: mt.wasteReason,
-          outcomeType: mt.outcomeType
-        }).eq('id', mt.id);
-        if (error) throw error;
-      }
-    }
-    const deletedTransactions = lastSynced.transactions.filter(st => !local.transactions.some(lt => lt.id === st.id));
-    if (deletedTransactions.length > 0) {
-      console.log(`[Sync] Удаление ${deletedTransactions.length} транзакций из Supabase...`);
-      const { error } = await supabase.from('transactions').delete().in('id', deletedTransactions.map(t => t.id));
-      if (error) throw error;
-    }
-
-    // Скачиваем актуальное состояние для перезаписи
+    // 1. Скачиваем актуальное состояние из Supabase (заменяет пинг)
     const [
       { data: dbProducts, error: pErr },
       { data: dbLocations, error: lErr },
@@ -331,18 +226,165 @@ async function syncWithCloud() {
       supabase.from('buyers').select('*')
     ]);
 
-    if (!pErr && !lErr && !baErr && !tErr && !buErr) {
-      const dbData = {
-        products: dbProducts || [],
-        locations: dbLocations || [],
-        batches: dbBatches || [],
-        transactions: dbTransactions || [],
-        buyers: dbBuyers || []
+    if (pErr || lErr || baErr || tErr || buErr) {
+      throw new Error(`Supabase fetch failed: ${pErr?.message || lErr?.message || baErr?.message || tErr?.message || buErr?.message}`);
+    }
+
+    isOnline = true;
+
+    const dbData = {
+      products: dbProducts || [],
+      locations: dbLocations || [],
+      batches: dbBatches || [],
+      transactions: dbTransactions || [],
+      buyers: dbBuyers || []
+    };
+
+    // Читаем текущие локальные файлы
+    const local = await readJsonFile(LOCAL_DB_PATH);
+    const lastSynced = await readJsonFile(LAST_SYNCED_PATH);
+
+    // Сливаем локальное состояние с облачными данными, чтобы разрешить любые SKU конфликты на сервере
+    const merged = mergeLocalAndDbStates(local, dbData);
+
+    // Записываем слитое состояние в local_db.json
+    await writeJsonFile(LOCAL_DB_PATH, merged);
+
+    // Определяем удаленные сущности на основе сравнения local (до слияния) и lastSynced
+    const deletedProducts = lastSynced.products.filter(sp => !local.products.some(lp => lp.id === sp.id));
+    const deletedBuyers = lastSynced.buyers.filter(sb => !local.buyers.some(lb => lb.id === sb.id));
+    const deletedBatches = lastSynced.batches.filter(sb => !local.batches.some(lb => lb.id === sb.id));
+    const deletedTransactions = lastSynced.transactions.filter(st => !local.transactions.some(lt => lt.id === st.id));
+
+    // Теперь определяем новые и измененные сущности на основе сравнения merged и dbData
+    const newProducts = merged.products.filter(lp => !dbData.products.some(sp => sp.id === lp.id));
+    const newBuyers = merged.buyers.filter(lb => !dbData.buyers.some(sb => sb.id === lb.id));
+    const newBatches = merged.batches.filter(lb => !dbData.batches.some(sb => sb.id === lb.id));
+    const newTransactions = merged.transactions.filter(lt => !dbData.transactions.some(st => st.id === lt.id));
+
+    const modifiedBatches = merged.batches.filter(lb => {
+      const sb = dbData.batches.find(sb => sb.id === lb.id);
+      return sb && (sb.quantityKg !== lb.quantityKg || sb.initialQuantityKg !== lb.initialQuantityKg || sb.locationId !== lb.locationId || sb.productId !== lb.productId);
+    });
+
+    const modifiedTransactions = merged.transactions.filter(ltx => {
+      const stx = dbData.transactions.find(st => st.id === ltx.id);
+      return stx && (
+        stx.quantityKg !== ltx.quantityKg ||
+        stx.date !== ltx.date ||
+        stx.notes !== ltx.notes ||
+        stx.buyerId !== ltx.buyerId ||
+        stx.wasteReason !== ltx.wasteReason ||
+        stx.outcomeType !== ltx.outcomeType ||
+        stx.productId !== ltx.productId
+      );
+    });
+
+    // --- ВЫПОЛНЯЕМ СИНХРОНИЗАЦИЮ В ОБЛАКО ---
+
+    // 1. Продукты
+    if (newProducts.length > 0) {
+      console.log(`[Sync] Отправка ${newProducts.length} новых товаров в Supabase...`);
+      const { error } = await supabase.from('products').upsert(newProducts);
+      if (error) throw error;
+    }
+    if (deletedProducts.length > 0) {
+      console.log(`[Sync] Удаление ${deletedProducts.length} товаров из Supabase...`);
+      const { error } = await supabase.from('products').delete().in('id', deletedProducts.map(p => p.id));
+      if (error) throw error;
+    }
+
+    // 2. Покупатели
+    if (newBuyers.length > 0) {
+      console.log(`[Sync] Отправка ${newBuyers.length} новых покупателей в Supabase...`);
+      const { error } = await supabase.from('buyers').upsert(newBuyers);
+      if (error) throw error;
+    }
+    if (deletedBuyers.length > 0) {
+      console.log(`[Sync] Удаление ${deletedBuyers.length} покупателей из Supabase...`);
+      const { error } = await supabase.from('buyers').delete().in('id', deletedBuyers.map(b => b.id));
+      if (error) throw error;
+    }
+
+    // 3. Партии
+    if (newBatches.length > 0) {
+      console.log(`[Sync] Отправка ${newBatches.length} новых партий в Supabase...`);
+      const { error } = await supabase.from('batches').upsert(newBatches);
+      if (error) throw error;
+    }
+    if (modifiedBatches.length > 0) {
+      console.log(`[Sync] Обновление ${modifiedBatches.length} измененных партий в Supabase...`);
+      for (const mb of modifiedBatches) {
+        const { error } = await supabase.from('batches').update({
+          quantityKg: mb.quantityKg,
+          initialQuantityKg: mb.initialQuantityKg,
+          locationId: mb.locationId,
+          productId: mb.productId
+        }).eq('id', mb.id);
+        if (error) throw error;
+      }
+    }
+    if (deletedBatches.length > 0) {
+      console.log(`[Sync] Удаление ${deletedBatches.length} партий из Supabase...`);
+      const { error } = await supabase.from('batches').delete().in('id', deletedBatches.map(b => b.id));
+      if (error) throw error;
+    }
+
+    // 4. Транзакции
+    if (newTransactions.length > 0) {
+      console.log(`[Sync] Отправка ${newTransactions.length} новых транзакций в Supabase...`);
+      const { error } = await supabase.from('transactions').upsert(newTransactions);
+      if (error) throw error;
+    }
+    if (modifiedTransactions.length > 0) {
+      console.log(`[Sync] Обновление ${modifiedTransactions.length} измененных транзакций в Supabase...`);
+      for (const mt of modifiedTransactions) {
+        const { error } = await supabase.from('transactions').update({
+          quantityKg: mt.quantityKg,
+          date: mt.date,
+          notes: mt.notes,
+          buyerId: mt.buyerId,
+          wasteReason: mt.wasteReason,
+          outcomeType: mt.outcomeType,
+          productId: mt.productId
+        }).eq('id', mt.id);
+        if (error) throw error;
+      }
+    }
+    if (deletedTransactions.length > 0) {
+      console.log(`[Sync] Удаление ${deletedTransactions.length} транзакций из Supabase...`);
+      const { error } = await supabase.from('transactions').delete().in('id', deletedTransactions.map(t => t.id));
+      if (error) throw error;
+    }
+
+    // Скачиваем актуальное состояние для перезаписи
+    const [
+      { data: dbProducts2, error: pErr2 },
+      { data: dbLocations2, error: lErr2 },
+      { data: dbBatches2, error: baErr2 },
+      { data: dbTransactions2, error: tErr2 },
+      { data: dbBuyers2, error: buErr2 }
+    ] = await Promise.all([
+      supabase.from('products').select('*'),
+      supabase.from('locations').select('*'),
+      supabase.from('batches').select('*'),
+      supabase.from('transactions').select('*').order('date', { ascending: false }),
+      supabase.from('buyers').select('*')
+    ]);
+
+    if (!pErr2 && !lErr2 && !baErr2 && !tErr2 && !buErr2) {
+      const dbData2 = {
+        products: dbProducts2 || [],
+        locations: dbLocations2 || [],
+        batches: dbBatches2 || [],
+        transactions: dbTransactions2 || [],
+        buyers: dbBuyers2 || []
       };
 
       // Синхронизируем локальный и облачный файлы
-      await writeJsonFile(LOCAL_DB_PATH, dbData);
-      await writeJsonFile(LAST_SYNCED_PATH, dbData);
+      await writeJsonFile(LOCAL_DB_PATH, dbData2);
+      await writeJsonFile(LAST_SYNCED_PATH, dbData2);
+      console.log(`[Sync] Фоновая синхронизация успешно завершена.`);
     }
   } catch (err) {
     console.warn(`[Sync] Не удалось выполнить синхронизацию (возможно, нет интернета):`, err.message || err);
