@@ -24,7 +24,7 @@ interface Props {
   locations: StorageLocation[];
   batches: Batch[];
   buyers?: Buyer[];
-  onIncome: (batch: Omit<Batch, "id" | "initialQuantityKg">) => void;
+  onIncome: (batch: Omit<Batch, "id" | "initialQuantityKg"> | Omit<Batch, "id" | "initialQuantityKg">[]) => void;
   onOutcome: (
     batchId: string,
     quantityKg: number,
@@ -107,8 +107,11 @@ export function Transactions({
           locations={locations}
           onSubmit={(data) => {
             onIncome(data);
+            const totalKg = Array.isArray(data)
+              ? data.reduce((sum, item) => sum + item.quantityKg, 0)
+              : data.quantityKg;
             showNotification(
-              "Приход успешно оформлен: " + data.quantityKg + " кг",
+              "Приход успешно оформлен: " + totalKg + " кг",
             );
           }}
         />
@@ -182,7 +185,7 @@ function IncomeForm({
 }: {
   products: Product[];
   locations: StorageLocation[];
-  onSubmit: (data: Omit<Batch, "id" | "initialQuantityKg">) => void;
+  onSubmit: (data: Omit<Batch, "id" | "initialQuantityKg"> | Omit<Batch, "id" | "initialQuantityKg">[]) => void;
 }) {
   const [drafts, setDrafts] = useState<IncomeDraftItem[]>([]);
   const [productId, setProductId] = useState("");
@@ -292,16 +295,15 @@ function IncomeForm({
 
   const handleProcessAll = () => {
     if (drafts.length === 0) return;
-    drafts.forEach((d) => {
-      onSubmit({
-        productId: d.productId,
-        locationId: d.locationId,
-        quantityKg: d.quantityKg,
-        receivedAt: new Date(docReceivedAt).toISOString(),
-        expiresAt: d.expiresAt,
-        manufacturedAt: d.manufacturedAt,
-      });
-    });
+    const items = drafts.map((d) => ({
+      productId: d.productId,
+      locationId: d.locationId,
+      quantityKg: d.quantityKg,
+      receivedAt: new Date(docReceivedAt).toISOString(),
+      expiresAt: d.expiresAt,
+      manufacturedAt: d.manufacturedAt,
+    }));
+    onSubmit(items);
     setDrafts([]);
   };
 

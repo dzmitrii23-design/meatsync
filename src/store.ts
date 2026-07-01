@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { AppState, Product, StorageLocation, Transaction, Batch, Buyer } from './types';
 import { generateId, generateProductSku, autoDetectAttributes } from './utils';
@@ -319,6 +319,7 @@ export function useAppStore() {
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
   const [unsyncedCount, setUnsyncedCount] = useState(0);
+  const migrationCheckedRef = useRef(false);
 
   // Загрузка состояния с локального сервера на старте
   useEffect(() => {
@@ -380,21 +381,12 @@ export function useAppStore() {
     }
   }, [state, loading]);
 
-  // Однократная миграция для слияния существующих дубликатов партий по дате изготовления
+  // Динамическое слияние существующих дубликатов партий по дате изготовления при загрузке
   useEffect(() => {
-    if (loading) return;
-
-    const migrationKey = 'meat_sync_migration_merged_duplicates_v3';
-    if (localStorage.getItem(migrationKey)) return;
+    if (loading || migrationCheckedRef.current) return;
+    migrationCheckedRef.current = true;
 
     async function migrate() {
-      console.log('Running one-time batches merge migration...');
-      
-      const mergedBatches: Batch[] = [];
-      const batchesToDelete: string[] = [];
-      const batchIdMapping: Record<string, string> = {}; // oldId -> mergedId
-
-      // Группируем партии по productId + locationId + день изготовления (manufacturedAt || receivedAt)
       const groups: Record<string, Batch[]> = {};
       state.batches.forEach(b => {
         const datePart = (b.manufacturedAt || b.receivedAt).split('T')[0];
@@ -405,7 +397,11 @@ export function useAppStore() {
         groups[key].push(b);
       });
 
+      const mergedBatches: Batch[] = [];
+      const batchesToDelete: string[] = [];
+      const batchIdMapping: Record<string, string> = {}; // oldId -> mergedId
       let hasDuplicates = false;
+
       Object.keys(groups).forEach(key => {
         const list = groups[key];
         if (list.length > 1) {
@@ -429,11 +425,11 @@ export function useAppStore() {
       });
 
       if (!hasDuplicates) {
-        localStorage.setItem(migrationKey, 'true');
         return;
       }
 
-      // Обновляем список партий в стейте (удаляем лишние, обновляем целевые)
+      console.log(`[Auto-Merge] Найдено ${batchesToDelete.length} дублирующихся партий. Запускаем слияние...`);
+
       const newBatches = state.batches
         .filter(b => !batchesToDelete.includes(b.id))
         .map(b => {
@@ -441,7 +437,6 @@ export function useAppStore() {
           return merged ? merged : b;
         });
 
-      // Перенаправляем транзакции со старых ID партий на новые объединенные ID
       const newTransactions = state.transactions.map(t => {
         if (t.batchId && batchIdMapping[t.batchId]) {
           return { ...t, batchId: batchIdMapping[t.batchId] };
@@ -449,17 +444,14 @@ export function useAppStore() {
         return t;
       });
 
-      // Синхронизация с базой Supabase (если онлайн)
       if (isOnline) {
         try {
-          // 1. Обновляем объединенные партии в Supabase
           for (const mb of mergedBatches) {
             await supabase
               .from('batches')
               .update({ quantityKg: mb.quantityKg, initialQuantityKg: mb.initialQuantityKg })
               .eq('id', mb.id);
           }
-          // 2. Обновляем транзакции в Supabase
           for (const t of newTransactions) {
             if (t.batchId && Object.values(batchIdMapping).includes(t.batchId)) {
               await supabase
@@ -468,16 +460,20 @@ export function useAppStore() {
                 .eq('id', t.id);
             }
           }
-          // 3. Delete duplicates from Supabase
           if (batchesToDelete.length > 0) {
-            await supabase
-              .from('batches')
-              .delete()
-              .in('id', batchesToDelete);
+            const chunkSize = 100;
+            for (let i = 0; i < batchesToDelete.length; i += chunkSize) {
+              const chunk = batchesToDelete.slice(i, i + chunkSize);
+              const { error } = await supabase
+                .from('batches')
+                .delete()
+                .in('id', chunk);
+              if (error) throw error;
+            }
           }
+          console.log('[Auto-Merge] Данные успешно синхронизированы с Supabase.');
         } catch (err) {
-          console.error('Failed to sync batch migration with Supabase:', err);
-          return; // Прерываем, чтобы не ставить флаг выполненной миграции
+          console.error('[Auto-Merge] Не удалось синхронизировать слияние партий с Supabase:', err);
         }
       }
 
@@ -487,12 +483,11 @@ export function useAppStore() {
         transactions: newTransactions
       }));
 
-      localStorage.setItem(migrationKey, 'true');
-      console.log('One-time batches merge migration completed successfully.');
+      console.log('[Auto-Merge] Динамическое слияние дубликатов партий успешно завершено.');
     }
 
     migrate();
-  }, [loading]);
+  }, [loading, isOnline]);
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
     const auto = autoDetectAttributes(product);
@@ -642,85 +637,103 @@ export function useAppStore() {
     }
   };
 
-  const processIncome = async (batchData: Omit<Batch, 'id' | 'initialQuantityKg'>) => {
-    const existingBatch = state.batches.find(b => 
-      b.productId === batchData.productId &&
-      b.locationId === batchData.locationId &&
-      (b.manufacturedAt || b.receivedAt).split('T')[0] === (batchData.manufacturedAt || batchData.receivedAt).split('T')[0]
-    );
+  const processIncome = async (batchData: Omit<Batch, 'id' | 'initialQuantityKg'> | Omit<Batch, 'id' | 'initialQuantityKg'>[]) => {
+    const items = Array.isArray(batchData) ? batchData : [batchData];
+    if (items.length === 0) return;
 
-    if (existingBatch) {
-      const updatedBatch: Batch = {
-        ...existingBatch,
-        quantityKg: existingBatch.quantityKg + batchData.quantityKg,
-        initialQuantityKg: existingBatch.initialQuantityKg + batchData.quantityKg,
-      };
-      const newTransaction: Transaction = {
-        id: generateId(),
-        type: 'IN',
-        productId: batchData.productId,
-        quantityKg: batchData.quantityKg,
-        date: batchData.receivedAt,
-        batchId: existingBatch.id,
-        toLocationId: batchData.locationId,
-      };
+    let currentBatches = [...state.batches];
+    const newTransactions: Transaction[] = [];
+    const supabaseOperations: (() => Promise<void>)[] = [];
 
-      if (isOnline) {
-        try {
-          const { error: batchErr } = await supabase
-            .from('batches')
-            .update({ 
-              quantityKg: updatedBatch.quantityKg,
-              initialQuantityKg: updatedBatch.initialQuantityKg
-            })
-            .eq('id', existingBatch.id);
-          if (batchErr) throw batchErr;
-          const { error: txErr } = await supabase.from('transactions').insert(newTransaction);
-          if (txErr) throw txErr;
-        } catch (err) {
-          console.error('Failed to update existing batch for income in Supabase:', err);
+    for (const item of items) {
+      const existingBatchIdx = currentBatches.findIndex(b => 
+        b.productId === item.productId &&
+        b.locationId === item.locationId &&
+        (b.manufacturedAt || b.receivedAt).split('T')[0] === (item.manufacturedAt || item.receivedAt).split('T')[0]
+      );
+
+      if (existingBatchIdx !== -1) {
+        const existingBatch = currentBatches[existingBatchIdx];
+        const updatedBatch: Batch = {
+          ...existingBatch,
+          quantityKg: existingBatch.quantityKg + item.quantityKg,
+          initialQuantityKg: existingBatch.initialQuantityKg + item.quantityKg,
+        };
+        currentBatches[existingBatchIdx] = updatedBatch;
+
+        const newTransaction: Transaction = {
+          id: generateId(),
+          type: 'IN',
+          productId: item.productId,
+          quantityKg: item.quantityKg,
+          date: item.receivedAt,
+          batchId: existingBatch.id,
+          toLocationId: item.locationId,
+        };
+        newTransactions.push(newTransaction);
+
+        if (isOnline) {
+          supabaseOperations.push(async () => {
+            const { error: batchErr } = await supabase
+              .from('batches')
+              .update({ 
+                quantityKg: updatedBatch.quantityKg,
+                initialQuantityKg: updatedBatch.initialQuantityKg
+              })
+              .eq('id', existingBatch.id);
+            if (batchErr) throw batchErr;
+
+            const { error: txErr } = await supabase.from('transactions').insert(newTransaction);
+            if (txErr) throw txErr;
+          });
+        }
+      } else {
+        const batchId = generateId();
+        const newBatch: Batch = {
+          ...item,
+          id: batchId,
+          initialQuantityKg: item.quantityKg,
+        };
+        currentBatches.push(newBatch);
+
+        const newTransaction: Transaction = {
+          id: generateId(),
+          type: 'IN',
+          productId: item.productId,
+          quantityKg: item.quantityKg,
+          date: item.receivedAt,
+          batchId: batchId,
+          toLocationId: item.locationId,
+        };
+        newTransactions.push(newTransaction);
+
+        if (isOnline) {
+          supabaseOperations.push(async () => {
+            const { error: batchErr } = await supabase.from('batches').insert(newBatch);
+            if (batchErr) throw batchErr;
+
+            const { error: txErr } = await supabase.from('transactions').insert(newTransaction);
+            if (txErr) throw txErr;
+          });
         }
       }
-
-      setState(prev => ({
-        ...prev,
-        batches: prev.batches.map(b => b.id === existingBatch.id ? updatedBatch : b),
-        transactions: [newTransaction, ...prev.transactions],
-      }));
-    } else {
-      const batchId = generateId();
-      const newBatch: Batch = {
-        ...batchData,
-        id: batchId,
-        initialQuantityKg: batchData.quantityKg,
-      };
-      const newTransaction: Transaction = {
-        id: generateId(),
-        type: 'IN',
-        productId: batchData.productId,
-        quantityKg: batchData.quantityKg,
-        date: batchData.receivedAt,
-        batchId: batchId,
-        toLocationId: batchData.locationId,
-      };
-
-      if (isOnline) {
-        try {
-          const { error: batchErr } = await supabase.from('batches').insert(newBatch);
-          if (batchErr) throw batchErr;
-          const { error: txErr } = await supabase.from('transactions').insert(newTransaction);
-          if (txErr) throw txErr;
-        } catch (err) {
-          console.error('Failed to record income in Supabase:', err);
-        }
-      }
-
-      setState(prev => ({
-        ...prev,
-        batches: [...prev.batches, newBatch],
-        transactions: [newTransaction, ...prev.transactions],
-      }));
     }
+
+    if (isOnline && supabaseOperations.length > 0) {
+      try {
+        for (const op of supabaseOperations) {
+          await op();
+        }
+      } catch (err) {
+        console.error('Failed to record income in Supabase:', err);
+      }
+    }
+
+    setState(prev => ({
+      ...prev,
+      batches: currentBatches,
+      transactions: [...newTransactions, ...prev.transactions],
+    }));
   };
 
   const processOutcome = async (

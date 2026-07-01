@@ -496,4 +496,40 @@ describe('utils.ts tests', () => {
       expect(merged.transactions[0].productId).toBe('p_db_cloud');
     });
   });
+
+  describe('batch processIncome', () => {
+    it('should merge multiple IN transactions inside an array (batch) into one batch', async () => {
+      const { result } = renderHook(() => useAppStore());
+      const testDate = new Date('2026-06-30T12:00:00.000Z').toISOString();
+
+      await act(async () => {
+        await result.current.processIncome([
+          {
+            productId: 'p10',
+            locationId: 'loc_main_1',
+            quantityKg: 150,
+            receivedAt: testDate,
+            expiresAt: new Date().toISOString(),
+          },
+          {
+            productId: 'p10',
+            locationId: 'loc_main_1',
+            quantityKg: 100,
+            receivedAt: testDate,
+            expiresAt: new Date().toISOString(),
+          }
+        ]);
+      });
+
+      const tx1 = result.current.state.transactions[0];
+      const tx2 = result.current.state.transactions[1];
+      expect(tx1.productId).toBe('p10');
+      expect(tx2.productId).toBe('p10');
+      expect(tx1.batchId).toBe(tx2.batchId);
+
+      const batch = result.current.state.batches.find(b => b.id === tx1.batchId);
+      expect(batch).toBeDefined();
+      expect(batch?.quantityKg).toBe(250);
+    });
+  });
 });
