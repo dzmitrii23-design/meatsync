@@ -154,9 +154,25 @@ export const mergeLocalAndDbStates = (
   }
 ): AppState => {
   const products = [...db.products];
+  const productIdMap: Record<string, string> = {}; // lp.id -> dbp.id для замены локальных ID на облачные при конфликтах SKU
+
   if (local && Array.isArray(local.products)) {
     local.products.forEach(lp => {
-      if (!products.some(dbp => dbp.id === lp.id)) {
+      // Ищем продукт в БД с таким же ID
+      const dbpById = products.find(p => p.id === lp.id);
+      if (dbpById) {
+        // Продукт уже есть по ID, ничего не делаем
+        return;
+      }
+
+      // Ищем продукт в БД с таким же SKU
+      const dbpBySku = products.find(p => p.sku && lp.sku && p.sku.trim().toLowerCase() === lp.sku.trim().toLowerCase());
+      if (dbpBySku) {
+        // Конфликт SKU! Заменяем локальный ID на облачный
+        productIdMap[lp.id] = dbpBySku.id;
+        console.log(`[Merge] Обнаружен конфликт SKU для "${lp.sku}". Переопределяем локальный ID ${lp.id} -> облачный ID ${dbpBySku.id}`);
+      } else {
+        // Нет конфликтов ни по ID, ни по SKU. Это действительно новый продукт.
         products.push(lp);
       }
     });
@@ -167,17 +183,22 @@ export const mergeLocalAndDbStates = (
   const mergedBatches = [...db.batches];
   if (local && Array.isArray(local.batches)) {
     local.batches.forEach(lb => {
-      const idx = mergedBatches.findIndex(dbb => dbb.id === lb.id);
+      // Если у партии productId совпадает с локальным ID из маппинга, заменяем его на облачный
+      const finalProductId = productIdMap[lb.productId] || lb.productId;
+      const updatedLb = { ...lb, productId: finalProductId };
+
+      const idx = mergedBatches.findIndex(dbb => dbb.id === updatedLb.id);
       if (idx !== -1) {
         if (
-          mergedBatches[idx].quantityKg !== lb.quantityKg ||
-          mergedBatches[idx].initialQuantityKg !== lb.initialQuantityKg ||
-          mergedBatches[idx].locationId !== lb.locationId
+          mergedBatches[idx].quantityKg !== updatedLb.quantityKg ||
+          mergedBatches[idx].initialQuantityKg !== updatedLb.initialQuantityKg ||
+          mergedBatches[idx].locationId !== updatedLb.locationId ||
+          mergedBatches[idx].productId !== updatedLb.productId
         ) {
-          mergedBatches[idx] = { ...mergedBatches[idx], ...lb };
+          mergedBatches[idx] = { ...mergedBatches[idx], ...updatedLb };
         }
       } else {
-        mergedBatches.push(lb);
+        mergedBatches.push(updatedLb);
       }
     });
   }
@@ -185,8 +206,17 @@ export const mergeLocalAndDbStates = (
   const mergedTransactions = [...db.transactions];
   if (local && Array.isArray(local.transactions)) {
     local.transactions.forEach(ltx => {
-      if (!mergedTransactions.some(dbtx => dbtx.id === ltx.id)) {
-        mergedTransactions.push(ltx);
+      // Если у транзакции productId совпадает с локальным ID из маппинга, заменяем его на облачный
+      const finalProductId = productIdMap[ltx.productId] || ltx.productId;
+      const updatedLtx = { ...ltx, productId: finalProductId };
+
+      const idx = mergedTransactions.findIndex(dbtx => dbtx.id === updatedLtx.id);
+      if (idx !== -1) {
+        if (mergedTransactions[idx].productId !== updatedLtx.productId) {
+          mergedTransactions[idx] = { ...mergedTransactions[idx], productId: updatedLtx.productId };
+        }
+      } else {
+        mergedTransactions.push(updatedLtx);
       }
     });
   }

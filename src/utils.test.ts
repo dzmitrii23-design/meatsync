@@ -453,5 +453,47 @@ describe('utils.ts tests', () => {
       
       expect(merged.transactions[0].id).toBe('tx_local_new');
     });
+
+    it('should resolve SKU conflicts and update references in transactions and batches', () => {
+      const localState = {
+        products: [
+          // Локальный продукт с тем же SKU, но другим ID
+          { id: 'p_local_new', name: 'Product 1 Updated', sku: 'P1-01', category: 'Охлажденное' }
+        ],
+        locations: [],
+        batches: [
+          { id: 'batch_local', productId: 'p_local_new', locationId: 'loc_main_1', quantityKg: 100, initialQuantityKg: 100, receivedAt: '2026-07-01T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' }
+        ],
+        transactions: [
+          { id: 'tx_local', type: 'IN', productId: 'p_local_new', quantityKg: 100, date: '2026-07-01T00:00:00.000Z', batchId: 'batch_local', toLocationId: 'loc_main_1' }
+        ],
+        buyers: []
+      } as any;
+
+      const dbData = {
+        products: [
+          // Облачный продукт с правильным ID
+          { id: 'p_db_cloud', name: 'Product 1', sku: 'P1-01', category: 'Охлажденное', defaultShelfLifeDays: 15 }
+        ],
+        locations: [{ id: 'loc_main_1', name: 'Main Fridge', type: 'main_fridge', capacityKg: 20000 }],
+        batches: [],
+        transactions: [],
+        buyers: []
+      } as any;
+
+      const merged = mergeLocalAndDbStates(localState, dbData);
+
+      // Проверяем, что локальный продукт с ID p_local_new был отброшен, а остался только облачный p_db_cloud
+      expect(merged.products.length).toBe(1);
+      expect(merged.products[0].id).toBe('p_db_cloud');
+
+      // Проверяем, что в локальных партиях productId был изменен на p_db_cloud
+      expect(merged.batches.length).toBe(1);
+      expect(merged.batches[0].productId).toBe('p_db_cloud');
+
+      // Проверяем, что в локальных транзакциях productId был изменен на p_db_cloud
+      expect(merged.transactions.length).toBe(1);
+      expect(merged.transactions[0].productId).toBe('p_db_cloud');
+    });
   });
 });
