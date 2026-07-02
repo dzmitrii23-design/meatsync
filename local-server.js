@@ -79,13 +79,26 @@ async function fetchAllFromTable(tableName, orderConfig = null) {
   return allData;
 }
 
-// Функция слияния локального состояния и Supabase
-function mergeLocalAndDbStates(local, db) {
-  const products = [...db.products];
+// Функция слияния локального состояния и Supabase с учетом удаленных объектов
+function mergeLocalAndDbStates(local, db, lastSynced) {
+  const lastSyncedState = lastSynced || { products: [], locations: [], batches: [], transactions: [], buyers: [] };
+
+  // --- 1. Продукты ---
+  // Определяем локально удаленные продукты (есть в lastSynced, но нет в local)
+  const deletedProductIds = new Set(
+    (lastSyncedState.products || [])
+      .filter(sp => !(local.products || []).some(lp => lp.id === sp.id))
+      .map(sp => sp.id)
+  );
+
+  // Инициализируем продуктами из БД, исключая удаленные локально
+  const products = (db.products || []).filter(p => !deletedProductIds.has(p.id));
   const productIdMap = {}; // lp.id -> dbp.id для замены локальных ID на облачные при конфликтах SKU
 
   if (local && Array.isArray(local.products)) {
     local.products.forEach(lp => {
+      if (deletedProductIds.has(lp.id)) return; // Пропускаем удаленный
+
       // Ищем продукт в БД с таким же ID
       const dbpById = products.find(p => p.id === lp.id);
       if (dbpById) {
@@ -106,11 +119,24 @@ function mergeLocalAndDbStates(local, db) {
     });
   }
 
+  // --- 2. Локации ---
   const locations = db.locations && db.locations.length ? db.locations : (local && local.locations && local.locations.length ? local.locations : []);
 
-  const mergedBatches = [...db.batches];
+  // --- 3. Партии ---
+  // Определяем локально удаленные партии
+  const deletedBatchIds = new Set(
+    (lastSyncedState.batches || [])
+      .filter(sb => !(local.batches || []).some(lb => lb.id === sb.id))
+      .map(sb => sb.id)
+  );
+
+  // Инициализируем партиями из БД, исключая удаленные локально
+  const mergedBatches = (db.batches || []).filter(b => !deletedBatchIds.has(b.id));
+
   if (local && Array.isArray(local.batches)) {
     local.batches.forEach(lb => {
+      if (deletedBatchIds.has(lb.id)) return; // Пропускаем удаленный
+
       // Если у партии productId совпадает с локальным ID из маппинга, заменяем его на облачный
       const finalProductId = productIdMap[lb.productId] || lb.productId;
       const updatedLb = { ...lb, productId: finalProductId };
@@ -131,9 +157,21 @@ function mergeLocalAndDbStates(local, db) {
     });
   }
 
-  const mergedTransactions = [...db.transactions];
+  // --- 4. Транзакции ---
+  // Определяем локально удаленные транзакции
+  const deletedTxIds = new Set(
+    (lastSyncedState.transactions || [])
+      .filter(stx => !(local.transactions || []).some(ltx => ltx.id === stx.id))
+      .map(stx => stx.id)
+  );
+
+  // Инициализируем транзакциями из БД, исключая удаленные локально
+  const mergedTransactions = (db.transactions || []).filter(t => !deletedTxIds.has(t.id));
+
   if (local && Array.isArray(local.transactions)) {
     local.transactions.forEach(ltx => {
+      if (deletedTxIds.has(ltx.id)) return; // Пропускаем удаленный
+
       // Если у транзакции productId совпадает с локальным ID из маппинга, заменяем его на облачный
       const finalProductId = productIdMap[ltx.productId] || ltx.productId;
       const updatedLtx = { ...ltx, productId: finalProductId };
@@ -150,9 +188,20 @@ function mergeLocalAndDbStates(local, db) {
   }
   mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  const buyers = [...db.buyers];
+  // --- 5. Покупатели ---
+  // Определяем локально удаленных покупателей
+  const deletedBuyerIds = new Set(
+    (lastSyncedState.buyers || [])
+      .filter(sb => !(local.buyers || []).some(lb => lb.id === sb.id))
+      .map(sb => sb.id)
+  );
+
+  const buyers = (db.buyers || []).filter(b => !deletedBuyerIds.has(b.id));
+
   if (local && Array.isArray(local.buyers)) {
     local.buyers.forEach(lby => {
+      if (deletedBuyerIds.has(lby.id)) return; // Пропускаем удаленный
+
       if (!buyers.some(dbby => dbby.id === lby.id)) {
         buyers.push(lby);
       }
@@ -262,8 +311,8 @@ async function syncWithCloud() {
     const local = await readJsonFile(LOCAL_DB_PATH);
     const lastSynced = await readJsonFile(LAST_SYNCED_PATH);
 
-    // Сливаем локальное состояние с облачными данными, чтобы разрешить любые SKU конфликты на сервере
-    const merged = mergeLocalAndDbStates(local, dbData);
+    // Сливаем локальное состояние с облачными данными, чтобы разрешить любые SKU конфликты на сервере с учетом удаленных объектов
+    const merged = mergeLocalAndDbStates(local, dbData, lastSynced);
 
     // Записываем слитое состояние в local_db.json
     await writeJsonFile(LOCAL_DB_PATH, merged);
@@ -450,8 +499,8 @@ app.get('/api/state', async (req, res) => {
       buyers: dbBuyers || []
     };
 
-    // Сливаем локальный файл с облачными данными
-    const merged = mergeLocalAndDbStates(local, dbData);
+    // Сливаем локальный файл с облачными данными с учетом удаленных объектов
+    const merged = mergeLocalAndDbStates(local, dbData, lastSynced);
     
     // Сохраняем результат
     await writeJsonFile(LOCAL_DB_PATH, merged);

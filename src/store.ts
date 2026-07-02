@@ -142,7 +142,7 @@ const loadState = (): AppState => {
   return defaultState;
 };
 
-// Слияние локального кэша и данных из базы Supabase
+// Слияние локального кэша и данных из базы Supabase с учетом удаленных объектов
 export const mergeLocalAndDbStates = (
   local: AppState,
   db: {
@@ -151,13 +151,27 @@ export const mergeLocalAndDbStates = (
     batches: Batch[];
     transactions: Transaction[];
     buyers: Buyer[];
-  }
+  },
+  lastSynced?: AppState
 ): AppState => {
-  const products = [...db.products];
+  const lastSyncedState = lastSynced || { products: [], locations: [], batches: [], transactions: [], buyers: [] };
+
+  // --- 1. Продукты ---
+  // Определяем локально удаленные продукты (есть в lastSynced, но нет в local)
+  const deletedProductIds = new Set(
+    (lastSyncedState.products || [])
+      .filter(sp => !(local.products || []).some(lp => lp.id === sp.id))
+      .map(sp => sp.id)
+  );
+
+  // Инициализируем продуктами из БД, исключая удаленные локально
+  const products = (db.products || []).filter(p => !deletedProductIds.has(p.id));
   const productIdMap: Record<string, string> = {}; // lp.id -> dbp.id для замены локальных ID на облачные при конфликтах SKU
 
   if (local && Array.isArray(local.products)) {
     local.products.forEach(lp => {
+      if (deletedProductIds.has(lp.id)) return; // Пропускаем удаленный
+
       // Ищем продукт в БД с таким же ID
       const dbpById = products.find(p => p.id === lp.id);
       if (dbpById) {
@@ -178,11 +192,24 @@ export const mergeLocalAndDbStates = (
     });
   }
 
+  // --- 2. Локации ---
   const locations = db.locations && db.locations.length ? db.locations : (local && local.locations && local.locations.length ? local.locations : initialLocations);
 
-  const mergedBatches = [...db.batches];
+  // --- 3. Партии ---
+  // Определяем локально удаленные партии
+  const deletedBatchIds = new Set(
+    (lastSyncedState.batches || [])
+      .filter(sb => !(local.batches || []).some(lb => lb.id === sb.id))
+      .map(sb => sb.id)
+  );
+
+  // Инициализируем партиями из БД, исключая удаленные локально
+  const mergedBatches = (db.batches || []).filter(b => !deletedBatchIds.has(b.id));
+
   if (local && Array.isArray(local.batches)) {
     local.batches.forEach(lb => {
+      if (deletedBatchIds.has(lb.id)) return; // Пропускаем удаленный
+
       // Если у партии productId совпадает с локальным ID из маппинга, заменяем его на облачный
       const finalProductId = productIdMap[lb.productId] || lb.productId;
       const updatedLb = { ...lb, productId: finalProductId };
@@ -203,9 +230,21 @@ export const mergeLocalAndDbStates = (
     });
   }
 
-  const mergedTransactions = [...db.transactions];
+  // --- 4. Транзакции ---
+  // Определяем локально удаленные транзакции
+  const deletedTxIds = new Set(
+    (lastSyncedState.transactions || [])
+      .filter(stx => !(local.transactions || []).some(ltx => ltx.id === stx.id))
+      .map(stx => stx.id)
+  );
+
+  // Инициализируем транзакциями из БД, исключая удаленные локально
+  const mergedTransactions = (db.transactions || []).filter(t => !deletedTxIds.has(t.id));
+
   if (local && Array.isArray(local.transactions)) {
     local.transactions.forEach(ltx => {
+      if (deletedTxIds.has(ltx.id)) return; // Пропускаем удаленный
+
       // Если у транзакции productId совпадает с локальным ID из маппинга, заменяем его на облачный
       const finalProductId = productIdMap[ltx.productId] || ltx.productId;
       const updatedLtx = { ...ltx, productId: finalProductId };
@@ -222,9 +261,20 @@ export const mergeLocalAndDbStates = (
   }
   mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  const buyers = [...db.buyers];
+  // --- 5. Покупатели ---
+  // Определяем локально удаленных покупателей
+  const deletedBuyerIds = new Set(
+    (lastSyncedState.buyers || [])
+      .filter(sb => !(local.buyers || []).some(lb => lb.id === sb.id))
+      .map(sb => sb.id)
+  );
+
+  const buyers = (db.buyers || []).filter(b => !deletedBuyerIds.has(b.id));
+
   if (local && Array.isArray(local.buyers)) {
     local.buyers.forEach(lby => {
+      if (deletedBuyerIds.has(lby.id)) return; // Пропускаем удаленный
+
       if (!buyers.some(dbby => dbby.id === lby.id)) {
         buyers.push(lby);
       }

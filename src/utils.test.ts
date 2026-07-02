@@ -495,6 +495,51 @@ describe('utils.ts tests', () => {
       expect(merged.transactions.length).toBe(1);
       expect(merged.transactions[0].productId).toBe('p_db_cloud');
     });
+
+    it('should exclude locally deleted batches from the merge results while preserving new cloud batches', () => {
+      const localState = {
+        products: [],
+        locations: [],
+        batches: [
+          // batch_deleted отсутствует здесь, так как был удален локально
+          { id: 'batch_active', productId: 'p1', locationId: 'loc_main_1', quantityKg: 100, initialQuantityKg: 100, receivedAt: '2026-07-01T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' }
+        ],
+        transactions: [],
+        buyers: []
+      } as any;
+
+      const dbData = {
+        products: [{ id: 'p1', name: 'Product 1', sku: 'P1-01', category: 'Охлажденное', defaultShelfLifeDays: 15 }],
+        locations: [],
+        batches: [
+          { id: 'batch_deleted', productId: 'p1', locationId: 'loc_main_1', quantityKg: 150, initialQuantityKg: 150, receivedAt: '2026-07-01T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' },
+          { id: 'batch_active', productId: 'p1', locationId: 'loc_main_1', quantityKg: 100, initialQuantityKg: 100, receivedAt: '2026-07-01T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' },
+          { id: 'batch_new_cloud', productId: 'p1', locationId: 'loc_main_1', quantityKg: 200, initialQuantityKg: 200, receivedAt: '2026-07-02T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' } // новая облачная партия
+        ],
+        transactions: [],
+        buyers: []
+      } as any;
+
+      const lastSynced = {
+        products: [],
+        locations: [],
+        batches: [
+          { id: 'batch_deleted', productId: 'p1', locationId: 'loc_main_1', quantityKg: 150, initialQuantityKg: 150, receivedAt: '2026-07-01T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' },
+          { id: 'batch_active', productId: 'p1', locationId: 'loc_main_1', quantityKg: 100, initialQuantityKg: 100, receivedAt: '2026-07-01T00:00:00.000Z', expiresAt: '2026-07-15T00:00:00.000Z' }
+        ],
+        transactions: [],
+        buyers: []
+      } as any;
+
+      const merged = mergeLocalAndDbStates(localState, dbData, lastSynced);
+
+      // batch_deleted должен быть отброшен из слияния
+      expect(merged.batches.some(b => b.id === 'batch_deleted')).toBe(false);
+      // batch_active должен остаться
+      expect(merged.batches.some(b => b.id === 'batch_active')).toBe(true);
+      // batch_new_cloud должен быть импортирован
+      expect(merged.batches.some(b => b.id === 'batch_new_cloud')).toBe(true);
+    });
   });
 
   describe('batch processIncome', () => {
