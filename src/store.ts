@@ -380,7 +380,61 @@ export function useAppStore() {
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
   const [unsyncedCount, setUnsyncedCount] = useState(0);
+  const [dataWarning, setDataWarning] = useState<string | null>(null);
   const migrationCheckedRef = useRef(false);
+
+  // Проверка целостности остатков (формула: expected = initialQty - sum(OUT, MOVE))
+  const verifyDataIntegrity = (stateData: AppState) => {
+    let errors = 0;
+    stateData.batches.forEach(batch => {
+      const txOut = stateData.transactions
+        .filter(t => t.batchId === batch.id && (t.type === 'OUT' || t.type === 'MOVE'))
+        .reduce((sum, t) => sum + t.quantityKg, 0);
+      const expectedQty = batch.initialQuantityKg - txOut;
+      
+      if (Math.abs(batch.quantityKg - expectedQty) > 0.1) {
+        errors++;
+      }
+    });
+    
+    if (errors > 0) {
+      setDataWarning(`Внимание: обнаружено рассинхронизацию остатков в ${errors} партиях!`);
+    } else {
+      setDataWarning(null);
+    }
+  };
+
+  // Авто-починка остатков
+  const runIntegrityFix = async (currentState: AppState) => {
+    let fixedCount = 0;
+    const newState = JSON.parse(JSON.stringify(currentState));
+    
+    newState.batches.forEach((batch: Batch) => {
+      const txOut = newState.transactions
+        .filter((t: Transaction) => t.batchId === batch.id && (t.type === 'OUT' || t.type === 'MOVE'))
+        .reduce((sum: number, t: Transaction) => sum + t.quantityKg, 0);
+      const expectedQty = batch.initialQuantityKg - txOut;
+      
+      if (Math.abs(batch.quantityKg - expectedQty) > 0.1) {
+        batch.quantityKg = expectedQty;
+        fixedCount++;
+      }
+    });
+
+    if (fixedCount > 0) {
+      setState(newState);
+      setDataWarning(null);
+      try {
+        await axios.post('http://localhost:5000/api/state', { state: newState });
+        alert(`✅ Успешно исправлено партий: ${fixedCount}. Данные синхронизированы с сервером!`);
+      } catch (err) {
+        alert(`⚠️ Исправлено партий: ${fixedCount}, но не удалось отправить на локальный сервер. Убедитесь, что сервер запущен.`);
+      }
+    } else {
+      setDataWarning(null);
+      alert('✅ Ошибок не найдено. База в идеале!');
+    }
+  };
 
   // Загрузка состояния с локального сервера на старте
   useEffect(() => {
@@ -392,12 +446,14 @@ export function useAppStore() {
         setState(serverState);
         setIsOnline(serverOnline);
         setUnsyncedCount(count);
+        verifyDataIntegrity(serverState);
       } catch (err) {
         console.warn('Локальный сервер недоступен, загружаем резервную копию из localStorage:', err.message || err);
         const local = loadState();
         setState(local);
         setIsOnline(false);
         setUnsyncedCount(0);
+        verifyDataIntegrity(local);
       } finally {
         setLoading(false);
       }
@@ -424,6 +480,10 @@ export function useAppStore() {
   // Сохранение в резервное локальное хранилище + отправка на локальный сервер при любых изменениях
   useEffect(() => {
     saveState(state);
+
+    if (!loading) {
+      verifyDataIntegrity(state);
+    }
 
     async function saveToLocalServer() {
       try {
@@ -1608,6 +1668,8 @@ export function useAppStore() {
     loading,
     isOnline,
     unsyncedCount,
+    dataWarning,
+    runIntegrityFix,
     addProduct,
     updateProduct,
     deleteProduct,

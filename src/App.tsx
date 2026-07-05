@@ -6,7 +6,7 @@ import { Locations } from './components/Locations';
 import { Journal } from './components/Journal';
 import { Returns } from './components/Returns';
 import { useAppStore } from './store';
-import { Box, LayoutDashboard, Database, ArrowLeftRight, Settings, FileClock, RotateCcw } from 'lucide-react';
+import { Box, LayoutDashboard, Database, ArrowLeftRight, Settings, FileClock, RotateCcw, AlertTriangle } from 'lucide-react';
 import { AiAssistantPanel } from './components/AiAssistantPanel';
 
 type Tab = 'dashboard' | 'nomenclature' | 'transactions' | 'locations' | 'journal' | 'returns';
@@ -17,6 +17,8 @@ export default function App() {
     loading,
     isOnline,
     unsyncedCount,
+    dataWarning,
+    runIntegrityFix,
     addProduct, 
     updateProduct, 
     deleteProduct,
@@ -208,6 +210,26 @@ export default function App() {
           </div>
         )}
         <div className="max-w-[1500px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-8 flex-grow flex flex-col print:p-0 print:pb-0">
+          {/* Плашка Аудитора */}
+          {dataWarning && (
+            <div className="mb-6 bg-amber-50/90 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300 backdrop-blur-sm print:hidden">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-amber-900 leading-tight">Проверка целостности данных</h4>
+                  <p className="text-xs text-amber-700 mt-0.5">{dataWarning}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => runIntegrityFix(state)} 
+                className="w-full sm:w-auto px-4 py-2 bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm hover:shadow-md border border-amber-600/10"
+              >
+                Починить автоматически
+              </button>
+            </div>
+          )}
           {activeTab === 'dashboard' && (
              <Dashboard 
                batches={state.batches} 
