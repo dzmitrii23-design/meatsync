@@ -361,19 +361,42 @@ async function syncWithCloud() {
       );
     });
 
+    // Отслеживаем изменения в существующих товарах
+    const modifiedProducts = merged.products.filter(lp => {
+      const sp = dbData.products.find(sp => sp.id === lp.id);
+      return sp && (
+        sp.name !== lp.name ||
+        sp.category !== lp.category ||
+        sp.rawMaterial !== lp.rawMaterial ||
+        sp.packagingType !== lp.packagingType ||
+        sp.sku !== lp.sku ||
+        sp.defaultShelfLifeDays !== lp.defaultShelfLifeDays ||
+        sp.notifyBeforeDays !== lp.notifyBeforeDays ||
+        sp.unit !== lp.unit
+      );
+    });
+
+    // Отслеживаем изменения в существующих покупателях
+    const modifiedBuyers = merged.buyers.filter(lb => {
+      const sb = dbData.buyers.find(sb => sb.id === lb.id);
+      return sb && (sb.name !== lb.name || sb.phone !== lb.phone);
+    });
+
     // --- ВЫПОЛНЯЕМ СИНХРОНИЗАЦИЮ В ОБЛАКО ---
 
-    // 1. Продукты (Добавление новых)
-    if (newProducts.length > 0) {
-      console.log(`[Sync] Отправка ${newProducts.length} новых товаров в Supabase...`);
-      const { error } = await supabase.from('products').upsert(newProducts);
+    // 1. Продукты (Добавление новых и сохранение изменений)
+    const productsToUpsert = [...newProducts, ...modifiedProducts];
+    if (productsToUpsert.length > 0) {
+      console.log(`[Sync] Отправка/обновление ${productsToUpsert.length} товаров в Supabase...`);
+      const { error } = await supabase.from('products').upsert(productsToUpsert);
       if (error) throw error;
     }
 
-    // 2. Покупатели (Добавление новых)
-    if (newBuyers.length > 0) {
-      console.log(`[Sync] Отправка ${newBuyers.length} новых покупателей в Supabase...`);
-      const { error } = await supabase.from('buyers').upsert(newBuyers);
+    // 2. Покупатели (Добавление новых и сохранение изменений)
+    const buyersToUpsert = [...newBuyers, ...modifiedBuyers];
+    if (buyersToUpsert.length > 0) {
+      console.log(`[Sync] Отправка/обновление ${buyersToUpsert.length} покупателей в Supabase...`);
+      const { error } = await supabase.from('buyers').upsert(buyersToUpsert);
       if (error) throw error;
     }
 
