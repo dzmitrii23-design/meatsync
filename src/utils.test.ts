@@ -625,5 +625,27 @@ describe('utils.ts tests', () => {
       expect(batch).toBeDefined();
       expect(batch?.quantityKg).toBe(250);
     });
+
+    it('should correctly update product properties and keep manual rawMaterial changes', async () => {
+      const { result } = renderHook(() => useAppStore());
+      
+      const product = { id: 'p_temp_366', name: 'Печень свиная', category: 'Замороженное', rawMaterial: 'Свинина', sku: 'SV-366' };
+      await act(async () => {
+        await result.current.addProduct(product);
+      });
+
+      const targetProduct = result.current.state.products.find(p => p.sku === 'SV-366');
+      expect(targetProduct).toBeDefined();
+
+      // Обновляем сырье на "Субпродукты"
+      await act(async () => {
+        await result.current.updateProduct(targetProduct!.id, {
+          rawMaterial: 'Субпродукты'
+        });
+      });
+
+      const updated = result.current.state.products.find(p => p.id === targetProduct!.id);
+      expect(updated?.rawMaterial).toBe('Субпродукты');
+    });
   });
 });

@@ -164,8 +164,8 @@ export const mergeLocalAndDbStates = (
       .map(sp => sp.id)
   );
 
-  // Инициализируем продуктами из БД, исключая удаленные локально
-  const products = (db.products || []).filter(p => !deletedProductIds.has(p.id));
+  // Инициализируем продуктами из БД, исключая удаленные локально (с клонированием объектов для предотвращения мутаций)
+  const products = (db.products || []).filter(p => !deletedProductIds.has(p.id)).map(p => ({ ...p }));
   const productIdMap: Record<string, string> = {}; // lp.id -> dbp.id для замены локальных ID на облачные при конфликтах SKU
 
   if (local && Array.isArray(local.products)) {
@@ -281,7 +281,8 @@ export const mergeLocalAndDbStates = (
       .map(sb => sb.id)
   );
 
-  const buyers = (db.buyers || []).filter(b => !deletedBuyerIds.has(b.id));
+  // Инициализируем покупателями из БД с клонированием объектов для предотвращения мутаций
+  const buyers = (db.buyers || []).filter(b => !deletedBuyerIds.has(b.id)).map(b => ({ ...b }));
 
   if (local && Array.isArray(local.buyers)) {
     local.buyers.forEach(lby => {
