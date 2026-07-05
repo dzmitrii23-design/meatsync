@@ -123,8 +123,8 @@ export function Dashboard({ batches, products, locations }: Props) {
         <div className="bg-white p-6 rounded-lg border shadow-sm">
           <p className="text-sm font-medium text-gray-500 mb-1">Общий объем продукции</p>
           <div className="flex items-end gap-2">
-            <span className="text-3xl font-bold text-gray-900">{(totalStockKg / 1000).toFixed(1)}</span>
-            <span className="text-lg text-gray-500 mb-1">тонн</span>
+            <span className="text-3xl font-bold text-gray-900">{totalStockKg.toLocaleString('ru-RU')}</span>
+            <span className="text-lg text-gray-500 mb-1">кг</span>
           </div>
         </div>
         <div className="bg-white p-6 rounded-lg border shadow-sm">
@@ -133,8 +133,8 @@ export function Dashboard({ batches, products, locations }: Props) {
             <span className="text-sm font-bold text-gray-700">{capacityPercent}%</span>
           </div>
           <div className="flex items-end gap-2 mb-3">
-             <span className="text-3xl font-bold text-gray-900">{(totalStockKg / 1000).toFixed(1)}</span>
-             <span className="text-lg text-gray-500 mb-1">из {(totalCapacityKg / 1000).toFixed(0)} т</span>
+             <span className="text-3xl font-bold text-gray-900">{totalStockKg.toLocaleString('ru-RU')}</span>
+             <span className="text-lg text-gray-500 mb-1">из {totalCapacityKg.toLocaleString('ru-RU')} кг</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div className={`h-2 rounded-full ${capacityPercent > 90 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${Math.min(capacityPercent, 100)}%` }}></div>
