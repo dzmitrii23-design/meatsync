@@ -19,6 +19,7 @@ export default function App() {
     unsyncedCount,
     dataWarning,
     runIntegrityFix,
+    isLocalServerConnected,
     addProduct, 
     updateProduct, 
     deleteProduct,
@@ -97,19 +98,29 @@ export default function App() {
 
             {/* Connection Sync Badge */}
             <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all duration-300 select-none ${
-              isOnline 
-                ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]' 
-                : 'bg-amber-950/40 text-amber-400 border-amber-500/20'
+              !isLocalServerConnected
+                ? 'bg-rose-950/40 text-rose-400 border-rose-500/20'
+                : isOnline 
+                  ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]' 
+                  : 'bg-amber-950/40 text-amber-400 border-amber-500/20'
             }`}>
-              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              <span className="text-[9px] font-bold uppercase tracking-wider">
-                {loading 
-                  ? 'Синхронизация...' 
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                !isLocalServerConnected 
+                  ? 'bg-rose-500 animate-pulse' 
                   : isOnline 
-                    ? '🛜 Облако (Supabase)' 
-                    : unsyncedCount > 0 
-                      ? `💾 Оффлайн (В очереди на отправку: ${unsyncedCount} опер.)` 
-                      : '💾 Локально'}
+                    ? 'bg-emerald-500 animate-pulse' 
+                    : 'bg-amber-500'
+              }`} />
+              <span className="text-[9px] font-bold uppercase tracking-wider">
+                {!isLocalServerConnected
+                  ? '❌ Сервер отключен'
+                  : loading 
+                    ? 'Синхронизация...' 
+                    : isOnline 
+                      ? '🛜 Облако (Supabase)' 
+                      : unsyncedCount > 0 
+                        ? `💾 Оффлайн (В очереди: ${unsyncedCount} опер.)` 
+                        : '💾 Локально'}
               </span>
             </div>
           </div>
@@ -210,6 +221,20 @@ export default function App() {
           </div>
         )}
         <div className="max-w-[1500px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-8 flex-grow flex flex-col print:p-0 print:pb-0">
+          {/* Предупреждение об отключенном локальном сервере */}
+          {!isLocalServerConnected && (
+            <div className="mb-6 bg-rose-50/90 border border-rose-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300 backdrop-blur-sm print:hidden">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-rose-100 text-rose-700 rounded-xl">
+                  <AlertTriangle className="w-5 h-5 animate-bounce" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-rose-900 leading-tight">Локальный сервер MeatSync не запущен!</h4>
+                  <p className="text-xs text-rose-700 mt-0.5">Пожалуйста, запустите файл <b>Запуск MeatSync.bat</b> на компьютере. Вносимые сейчас изменения не будут сохранены!</p>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Плашка Аудитора */}
           {dataWarning && (
             <div className="mb-6 bg-amber-50/90 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300 backdrop-blur-sm print:hidden">

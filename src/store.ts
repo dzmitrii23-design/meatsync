@@ -381,6 +381,7 @@ export function useAppStore() {
   const [isOnline, setIsOnline] = useState(false);
   const [unsyncedCount, setUnsyncedCount] = useState(0);
   const [dataWarning, setDataWarning] = useState<string | null>(null);
+  const [isLocalServerConnected, setIsLocalServerConnected] = useState(true);
   const migrationCheckedRef = useRef(false);
 
   // Проверка целостности остатков (формула: expected = initialQty - sum(OUT, MOVE))
@@ -446,6 +447,7 @@ export function useAppStore() {
         setState(serverState);
         setIsOnline(serverOnline);
         setUnsyncedCount(count);
+        setIsLocalServerConnected(true);
         verifyDataIntegrity(serverState);
       } catch (err) {
         console.warn('Локальный сервер недоступен, загружаем резервную копию из localStorage:', err.message || err);
@@ -453,6 +455,7 @@ export function useAppStore() {
         setState(local);
         setIsOnline(false);
         setUnsyncedCount(0);
+        setIsLocalServerConnected(false);
         verifyDataIntegrity(local);
       } finally {
         setLoading(false);
@@ -470,8 +473,10 @@ export function useAppStore() {
         const { isOnline: serverOnline, unsyncedCount: count } = res.data;
         setIsOnline(serverOnline);
         setUnsyncedCount(count);
+        setIsLocalServerConnected(true);
       } catch (err) {
         setIsOnline(false);
+        setIsLocalServerConnected(false);
       }
     }, 10000);
     return () => clearInterval(interval);
@@ -491,9 +496,11 @@ export function useAppStore() {
         const { isOnline: serverOnline, unsyncedCount: count } = res.data;
         setIsOnline(serverOnline);
         setUnsyncedCount(count);
+        setIsLocalServerConnected(true);
       } catch (err) {
         console.warn('Не удалось отправить состояние на локальный сервер:', err.message || err);
         setIsOnline(false);
+        setIsLocalServerConnected(false);
       }
     }
 
@@ -1670,6 +1677,7 @@ export function useAppStore() {
     unsyncedCount,
     dataWarning,
     runIntegrityFix,
+    isLocalServerConnected,
     addProduct,
     updateProduct,
     deleteProduct,
