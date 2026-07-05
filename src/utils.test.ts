@@ -540,6 +540,55 @@ describe('utils.ts tests', () => {
       // batch_new_cloud должен быть импортирован
       expect(merged.batches.some(b => b.id === 'batch_new_cloud')).toBe(true);
     });
+
+    it('should update other transaction fields like batchId, quantityKg, notes, and date when transaction IDs match during merge', () => {
+      const localState = {
+        products: [],
+        locations: [],
+        batches: [],
+        transactions: [
+          {
+            id: 'tx_existing',
+            type: 'IN',
+            productId: 'p1',
+            quantityKg: 150,
+            date: '2026-06-30T10:00:00.000Z',
+            batchId: 'batch_new_survived',
+            toLocationId: 'loc_main_1',
+            notes: 'Merged with other batch'
+          }
+        ],
+        buyers: []
+      } as any;
+
+      const dbData = {
+        products: [{ id: 'p1', name: 'Product 1', sku: 'P1-01', category: 'Охлажденное', defaultShelfLifeDays: 15 }],
+        locations: [{ id: 'loc_main_1', name: 'Main Fridge', type: 'main_fridge', capacityKg: 20000 }],
+        batches: [],
+        transactions: [
+          {
+            id: 'tx_existing',
+            type: 'IN',
+            productId: 'p1',
+            quantityKg: 200,
+            date: '2026-06-30T00:00:00.000Z',
+            batchId: 'batch_old_deleted',
+            toLocationId: 'loc_main_1',
+            notes: 'Original notes'
+          }
+        ],
+        buyers: []
+      } as any;
+
+      const merged = mergeLocalAndDbStates(localState, dbData);
+
+      expect(merged.transactions.length).toBe(1);
+      const mergedTx = merged.transactions[0];
+      expect(mergedTx.batchId).toBe('batch_new_survived');
+      expect(mergedTx.quantityKg).toBe(150);
+      expect(mergedTx.date).toBe('2026-06-30T10:00:00.000Z');
+      expect(mergedTx.notes).toBe('Merged with other batch');
+    });
   });
 
   describe('batch processIncome', () => {

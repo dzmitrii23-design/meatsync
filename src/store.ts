@@ -251,8 +251,19 @@ export const mergeLocalAndDbStates = (
 
       const idx = mergedTransactions.findIndex(dbtx => dbtx.id === updatedLtx.id);
       if (idx !== -1) {
-        if (mergedTransactions[idx].productId !== updatedLtx.productId) {
-          mergedTransactions[idx] = { ...mergedTransactions[idx], productId: updatedLtx.productId };
+        if (
+          mergedTransactions[idx].productId !== updatedLtx.productId ||
+          mergedTransactions[idx].batchId !== updatedLtx.batchId ||
+          mergedTransactions[idx].quantityKg !== updatedLtx.quantityKg ||
+          mergedTransactions[idx].type !== updatedLtx.type ||
+          mergedTransactions[idx].fromLocationId !== updatedLtx.fromLocationId ||
+          mergedTransactions[idx].toLocationId !== updatedLtx.toLocationId ||
+          mergedTransactions[idx].outcomeType !== updatedLtx.outcomeType ||
+          mergedTransactions[idx].buyerId !== updatedLtx.buyerId ||
+          mergedTransactions[idx].notes !== updatedLtx.notes ||
+          mergedTransactions[idx].date !== updatedLtx.date
+        ) {
+          mergedTransactions[idx] = { ...mergedTransactions[idx], ...updatedLtx };
         }
       } else {
         mergedTransactions.push(updatedLtx);

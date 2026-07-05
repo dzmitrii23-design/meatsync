@@ -178,8 +178,19 @@ function mergeLocalAndDbStates(local, db, lastSynced) {
 
       const idx = mergedTransactions.findIndex(dbtx => dbtx.id === updatedLtx.id);
       if (idx !== -1) {
-        if (mergedTransactions[idx].productId !== updatedLtx.productId) {
-          mergedTransactions[idx] = { ...mergedTransactions[idx], productId: updatedLtx.productId };
+        if (
+          mergedTransactions[idx].productId !== updatedLtx.productId ||
+          mergedTransactions[idx].batchId !== updatedLtx.batchId ||
+          mergedTransactions[idx].quantityKg !== updatedLtx.quantityKg ||
+          mergedTransactions[idx].type !== updatedLtx.type ||
+          mergedTransactions[idx].fromLocationId !== updatedLtx.fromLocationId ||
+          mergedTransactions[idx].toLocationId !== updatedLtx.toLocationId ||
+          mergedTransactions[idx].outcomeType !== updatedLtx.outcomeType ||
+          mergedTransactions[idx].buyerId !== updatedLtx.buyerId ||
+          mergedTransactions[idx].notes !== updatedLtx.notes ||
+          mergedTransactions[idx].date !== updatedLtx.date
+        ) {
+          mergedTransactions[idx] = { ...mergedTransactions[idx], ...updatedLtx };
         }
       } else {
         mergedTransactions.push(updatedLtx);
@@ -262,7 +273,9 @@ function getUnsyncedCount(local, lastSynced) {
       stx.notes !== ltx.notes ||
       stx.buyerId !== ltx.buyerId ||
       stx.wasteReason !== ltx.wasteReason ||
-      stx.outcomeType !== ltx.outcomeType
+      stx.outcomeType !== ltx.outcomeType ||
+      stx.productId !== ltx.productId ||
+      stx.batchId !== ltx.batchId
     );
   }).length;
 
@@ -343,61 +356,36 @@ async function syncWithCloud() {
         stx.buyerId !== ltx.buyerId ||
         stx.wasteReason !== ltx.wasteReason ||
         stx.outcomeType !== ltx.outcomeType ||
-        stx.productId !== ltx.productId
+        stx.productId !== ltx.productId ||
+        stx.batchId !== ltx.batchId
       );
     });
 
     // --- ВЫПОЛНЯЕМ СИНХРОНИЗАЦИЮ В ОБЛАКО ---
 
-    // 1. Продукты
+    // 1. Продукты (Добавление новых)
     if (newProducts.length > 0) {
       console.log(`[Sync] Отправка ${newProducts.length} новых товаров в Supabase...`);
       const { error } = await supabase.from('products').upsert(newProducts);
       if (error) throw error;
     }
-    if (deletedProducts.length > 0) {
-      console.log(`[Sync] Удаление ${deletedProducts.length} товаров из Supabase...`);
-      const { error } = await supabase.from('products').delete().in('id', deletedProducts.map(p => p.id));
-      if (error) throw error;
-    }
 
-    // 2. Покупатели
+    // 2. Покупатели (Добавление новых)
     if (newBuyers.length > 0) {
       console.log(`[Sync] Отправка ${newBuyers.length} новых покупателей в Supabase...`);
       const { error } = await supabase.from('buyers').upsert(newBuyers);
       if (error) throw error;
     }
-    if (deletedBuyers.length > 0) {
-      console.log(`[Sync] Удаление ${deletedBuyers.length} покупателей из Supabase...`);
-      const { error } = await supabase.from('buyers').delete().in('id', deletedBuyers.map(b => b.id));
-      if (error) throw error;
-    }
 
-    // 3. Партии
+    // 3. Партии (Добавление новых)
     if (newBatches.length > 0) {
       console.log(`[Sync] Отправка ${newBatches.length} новых партий в Supabase...`);
       const { error } = await supabase.from('batches').upsert(newBatches);
       if (error) throw error;
     }
-    if (modifiedBatches.length > 0) {
-      console.log(`[Sync] Обновление ${modifiedBatches.length} измененных партий в Supabase...`);
-      for (const mb of modifiedBatches) {
-        const { error } = await supabase.from('batches').update({
-          quantityKg: mb.quantityKg,
-          initialQuantityKg: mb.initialQuantityKg,
-          locationId: mb.locationId,
-          productId: mb.productId
-        }).eq('id', mb.id);
-        if (error) throw error;
-      }
-    }
-    if (deletedBatches.length > 0) {
-      console.log(`[Sync] Удаление ${deletedBatches.length} партий из Supabase...`);
-      const { error } = await supabase.from('batches').delete().in('id', deletedBatches.map(b => b.id));
-      if (error) throw error;
-    }
 
-    // 4. Транзакции
+    // 4. Транзакции (Добавление новых и обновление измененных)
+    // [ВАЖНО] Делаем это ДО удаления партий, чтобы перелинковать транзакции на новые ID партий и избежать ошибок внешнего ключа (FK)
     if (newTransactions.length > 0) {
       console.log(`[Sync] Отправка ${newTransactions.length} новых транзакций в Supabase...`);
       const { error } = await supabase.from('transactions').upsert(newTransactions);
@@ -413,7 +401,8 @@ async function syncWithCloud() {
           buyerId: mt.buyerId,
           wasteReason: mt.wasteReason,
           outcomeType: mt.outcomeType,
-          productId: mt.productId
+          productId: mt.productId,
+          batchId: mt.batchId
         }).eq('id', mt.id);
         if (error) throw error;
       }
@@ -421,6 +410,40 @@ async function syncWithCloud() {
     if (deletedTransactions.length > 0) {
       console.log(`[Sync] Удаление ${deletedTransactions.length} транзакций из Supabase...`);
       const { error } = await supabase.from('transactions').delete().in('id', deletedTransactions.map(t => t.id));
+      if (error) throw error;
+    }
+
+    // 5. Удаление партий
+    // [ВАЖНО] Теперь, когда транзакции больше не ссылаются на удаленные партии, мы можем их безопасно удалить
+    if (deletedBatches.length > 0) {
+      console.log(`[Sync] Удаление ${deletedBatches.length} партий из Supabase...`);
+      const { error } = await supabase.from('batches').delete().in('id', deletedBatches.map(b => b.id));
+      if (error) throw error;
+    }
+
+    // 6. Обновление измененных партий
+    if (modifiedBatches.length > 0) {
+      console.log(`[Sync] Обновление ${modifiedBatches.length} измененных партий в Supabase...`);
+      for (const mb of modifiedBatches) {
+        const { error } = await supabase.from('batches').update({
+          quantityKg: mb.quantityKg,
+          initialQuantityKg: mb.initialQuantityKg,
+          locationId: mb.locationId,
+          productId: mb.productId
+        }).eq('id', mb.id);
+        if (error) throw error;
+      }
+    }
+
+    // 7. Удаление товаров и покупателей
+    if (deletedProducts.length > 0) {
+      console.log(`[Sync] Удаление ${deletedProducts.length} товаров из Supabase...`);
+      const { error } = await supabase.from('products').delete().in('id', deletedProducts.map(p => p.id));
+      if (error) throw error;
+    }
+    if (deletedBuyers.length > 0) {
+      console.log(`[Sync] Удаление ${deletedBuyers.length} покупателей из Supabase...`);
+      const { error } = await supabase.from('buyers').delete().in('id', deletedBuyers.map(b => b.id));
       if (error) throw error;
     }
 
