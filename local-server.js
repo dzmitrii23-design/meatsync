@@ -99,10 +99,10 @@ function mergeLocalAndDbStates(local, db, lastSynced) {
     local.products.forEach(lp => {
       if (deletedProductIds.has(lp.id)) return; // Пропускаем удаленный
 
-      // Ищем продукт в БД с таким же ID
       const dbpById = products.find(p => p.id === lp.id);
       if (dbpById) {
-        // Продукт уже есть по ID, ничего не делаем
+        // Продукт уже есть по ID. Обновляем его поля из локального состояния (например, сырье)
+        Object.assign(dbpById, lp);
         return;
       }
 
@@ -213,7 +213,10 @@ function mergeLocalAndDbStates(local, db, lastSynced) {
     local.buyers.forEach(lby => {
       if (deletedBuyerIds.has(lby.id)) return; // Пропускаем удаленный
 
-      if (!buyers.some(dbby => dbby.id === lby.id)) {
+      const dbby = buyers.find(dbb => dbb.id === lby.id);
+      if (dbby) {
+        Object.assign(dbby, lby);
+      } else {
         buyers.push(lby);
       }
     });
