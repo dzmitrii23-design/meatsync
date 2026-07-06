@@ -144,7 +144,7 @@ export function Journal({
     let mpcKg = 0;
     let returnKg = 0;
 
-    transactions.forEach((t) => {
+    filteredTransactions.forEach((t) => {
       if (t.type === 'IN') {
         incomeKg += t.quantityKg;
       } else if (t.type === 'MOVE') {
@@ -163,7 +163,7 @@ export function Journal({
     });
 
     return { incomeKg, saleKg, wasteKg, moveKg, mpcKg, returnKg };
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   const getTransactionLabel = (t: Transaction) => {
     if (t.type === 'IN') return { text: 'Приход', color: 'bg-green-100 text-green-800 border-green-200' };
