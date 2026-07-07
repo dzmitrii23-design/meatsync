@@ -223,6 +223,26 @@ export function Dashboard({ batches, products, locations }: Props) {
                     <div className="text-right shrink-0">
                       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Общий остаток</p>
                       <p className="text-lg font-black text-slate-900">{item.totalKg.toLocaleString()} {item.product.unit || 'кг'}</p>
+                      {item.nearestExpiry && (
+                        <p className={`text-xs font-semibold mt-1 ${
+                          item.daysLeft! < 0
+                            ? 'text-red-600'
+                            : item.daysLeft! <= (item.product.notifyBeforeDays ?? 14)
+                              ? 'text-orange-600'
+                              : 'text-green-600'
+                        }`}>
+                          Годен до: {format(item.nearestExpiry, 'dd.MM.yyyy')}
+                          <span className={`ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                            item.daysLeft! < 0
+                              ? 'bg-red-100 text-red-700'
+                              : item.daysLeft! <= (item.product.notifyBeforeDays ?? 14)
+                                ? 'bg-orange-100 text-orange-700'
+                                : 'bg-green-100 text-green-700'
+                          }`}>
+                            {item.daysLeft! < 0 ? 'ПРОСРОК' : `${item.daysLeft} дн`}
+                          </span>
+                        </p>
+                      )}
                     </div>
                   </div>
 
