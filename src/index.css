@@ -58,4 +58,37 @@
     page-break-inside: avoid;
     break-inside: avoid;
   }
+
+  /* === ДАШБОРД: Компактная печать === */
+
+  /* Скрыть фильтры, партии и панель просрочки */
+  [data-print="filter-panel"],
+  [data-print="batch-list"],
+  [data-print="expiring-panel"] {
+    display: none !important;
+  }
+
+  /* Компактная карточка товара */
+  [data-print="product-card"] {
+    padding: 4px 8px !important;
+    margin-bottom: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+    border: none !important;
+    border-bottom: 1px dotted #999 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Убираем нижнюю линию в заголовке карточки */
+  [data-print="product-card"] > .flex.justify-between {
+    padding-bottom: 2px !important;
+    border-bottom: none !important;
+  }
+
+  /* Основная колонка на всю ширину (правая скрыта) */
+  .lg\:col-span-2 {
+    grid-column: span 3 !important;
+  }
 }

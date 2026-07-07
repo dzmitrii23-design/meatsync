@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, StorageLocation, Batch } from '../types';
 import { format, differenceInDays } from 'date-fns';
-import { AlertCircle, AlertTriangle, Package, Printer } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ChevronDown, ChevronRight, Package, Printer } from 'lucide-react';
 
 interface Props {
   batches: Batch[];
@@ -51,6 +51,14 @@ export function Dashboard({ batches, products, locations }: Props) {
   // Local filter states
   const [filterMaterial, setFilterMaterial] = React.useState<string>('all');
   const [filterPackaging, setFilterPackaging] = React.useState<string>('all');
+  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   // Filter out returns location from main refrigerator stock calculations
   const normalBatches = batches.filter(b => b.locationId !== 'loc_returns_1');
@@ -158,7 +166,7 @@ export function Dashboard({ batches, products, locations }: Props) {
               <h3 className="text-lg font-semibold text-gray-950">Сводка по продукции</h3>
               
               {/* Фильтры на дашборде */}
-              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto" data-print="filter-panel">
                 <select 
                   value={filterMaterial} 
                   onChange={e => setFilterMaterial(e.target.value)} 
@@ -192,11 +200,15 @@ export function Dashboard({ batches, products, locations }: Props) {
 
             <div className="space-y-4">
               {stockByProduct.map(item => (
-                <div key={item.product.id} className="p-4 border rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-3">
+                <div key={item.product.id} className="p-4 border rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-3" data-print="product-card">
                   {/* Заголовок карточки товара с общим остатком */}
-                  <div className="flex justify-between items-start pb-2 border-b border-slate-200/60">
+                  <div className="flex justify-between items-start pb-2 border-b border-slate-200/60 cursor-pointer select-none" onClick={() => toggleExpand(item.product.id)}>
                     <div className="flex items-start gap-3">
-                      <Package className="text-slate-400 mt-1 shrink-0" size={20} />
+                      {expandedIds.has(item.product.id)
+                        ? <ChevronDown className="text-slate-400 mt-0.5 shrink-0 print:hidden" size={16} />
+                        : <ChevronRight className="text-slate-400 mt-0.5 shrink-0 print:hidden" size={16} />
+                      }
+                      <Package className="text-slate-400 mt-1 shrink-0 print:hidden" size={20} />
                       <div>
                         <p className="font-semibold text-gray-950 font-sans">{item.product.name}</p>
                         <div className="text-xs text-gray-500 font-mono mt-0.5 space-y-1">
@@ -214,8 +226,9 @@ export function Dashboard({ batches, products, locations }: Props) {
                     </div>
                   </div>
 
-                  {/* Список конкретных партий по складам */}
-                  <div className="pl-6 space-y-2">
+                  {/* Список конкретных партий по складам (аккордеон) */}
+                  {expandedIds.has(item.product.id) && (
+                  <div className="pl-6 space-y-2" data-print="batch-list">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Разбивка по партиям:</p>
                     {item.batches.map(b => {
                       const loc = locations.find(l => l.id === b.locationId);
@@ -257,6 +270,7 @@ export function Dashboard({ batches, products, locations }: Props) {
                       );
                     })}
                   </div>
+                  )}
                 </div>
               ))}
               {stockByProduct.length === 0 && (
@@ -267,7 +281,7 @@ export function Dashboard({ batches, products, locations }: Props) {
         </div>
 
         {/* Right Col - Expiring Soon */}
-        <div className="space-y-6">
+        <div className="space-y-6" data-print="expiring-panel">
           <div className="bg-white p-6 rounded-lg border shadow-sm border-red-100">
             <h3 className="text-lg font-medium text-red-900 mb-4 flex items-center gap-2">
               <AlertTriangle className="text-red-500" size={20} />
